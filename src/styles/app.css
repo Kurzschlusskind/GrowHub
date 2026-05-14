@@ -274,7 +274,7 @@ small {
 }
 
 .channel-card {
-  min-height: 360px;
+  min-height: 300px;
   background: linear-gradient(180deg, #17221c, #101813);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -306,22 +306,83 @@ small {
 }
 
 .channel-top strong {
-  font-size: 48px;
+  font-size: 52px;
   line-height: 0.9;
   color: currentColor;
 }
 
-.fader-wrap {
+.level-control {
+  align-self: center;
   display: grid;
-  place-items: center;
-  min-height: 190px;
+  gap: 12px;
+  color: currentColor;
 }
 
-.fader-wrap input[type="range"] {
-  width: min(260px, 80%);
-  height: 38px;
-  transform: rotate(-90deg);
-  accent-color: currentColor;
+.level-scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 4px;
+}
+
+.level-control input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.level-control input[type="range"]:focus {
+  outline: none;
+}
+
+.level-control input[type="range"]::-webkit-slider-runnable-track {
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, currentColor 0 var(--level), #07100b var(--level) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.level-control input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 34px;
+  height: 34px;
+  margin-top: -10px;
+  border: 5px solid currentColor;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+}
+
+.level-control input[type="range"]::-moz-range-track {
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #07100b;
+}
+
+.level-control input[type="range"]::-moz-range-progress {
+  height: 16px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.level-control input[type="range"]::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 5px solid currentColor;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
 }
 
 .bar {
@@ -379,23 +440,71 @@ small {
 
 .schedule-chart,
 .log-chart {
-  min-height: 390px;
+  min-height: 430px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(22, 34, 27, 0.76), rgba(7, 12, 9, 0.96));
+    linear-gradient(180deg, rgba(22, 34, 27, 0.86), rgba(7, 12, 9, 0.98));
   color: var(--muted);
+  overflow: hidden;
 }
 
 .schedule-chart svg {
+  display: block;
   width: 100%;
   height: 100%;
-  min-height: 390px;
+  min-height: 430px;
+  cursor: crosshair;
 }
 
-.schedule-chart line {
-  stroke: #2d4036;
+.plot-bg {
+  fill: rgba(6, 13, 9, 0.78);
+  stroke: var(--line);
   stroke-width: 1;
+}
+
+.grid-line {
+  stroke: #355044;
+  stroke-width: 1;
+}
+
+.grid-line.soft {
+  opacity: 0.55;
+}
+
+.axis-label {
+  fill: var(--muted);
+  font-size: 18px;
+  font-weight: 700;
+  user-select: none;
+  pointer-events: none;
+}
+
+.chart-handle {
+  cursor: grab;
+}
+
+.chart-handle:active {
+  cursor: grabbing;
+}
+
+.chart-handle circle {
+  fill: var(--text);
+  stroke: var(--leaf);
+  stroke-width: 5;
+  filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.48));
+}
+
+.chart-handle text {
+  fill: var(--text);
+  stroke: #06100a;
+  stroke-width: 4;
+  paint-order: stroke;
+  font-size: 16px;
+  font-weight: 800;
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
 }
 
 .editor-card {

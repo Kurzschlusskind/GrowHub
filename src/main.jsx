@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Activity, Clock3, Droplets, Fan, Gauge, Leaf, Lightbulb, ListTodo, Plus, Power, Save, Settings, Trash2, Waves, Wifi } from "lucide-react";
 import { createLightingAdapter } from "./devices/lighting/adapter";
@@ -176,7 +176,12 @@ function ChannelCard({ name, value, applied, color, onChange }) {
         <h3>{name}</h3>
         <strong>{percent(value)}</strong>
       </div>
-      <div className="fader-wrap">
+      <div className="level-control" style={{ "--level": `${value}%` }}>
+        <div className="level-scale">
+          <span>0</span>
+          <span>50</span>
+          <span>100</span>
+        </div>
         <input type="range" min={0} max={100} value={value} onChange={(event) => onChange(Number(event.target.value))} />
       </div>
       <div className="bar"><span style={{ width: `${applied}%` }} /></div>
@@ -188,21 +193,29 @@ function ChannelCard({ name, value, applied, color, onChange }) {
 function ScheduleView({ data, onSave }) {
   const [schedule, setSchedule] = useState(data.schedule);
   const [channel, setChannel] = useState("ch1");
+  const [dirty, setDirty] = useState(false);
   const points = schedule[channel];
 
-  useEffect(() => setSchedule(data.schedule), [data.schedule]);
+  useEffect(() => {
+    if (!dirty) setSchedule(data.schedule);
+  }, [data.schedule, dirty]);
+
+  function commit(nextSchedule) {
+    setSchedule(nextSchedule);
+    setDirty(true);
+  }
 
   function updatePoint(index, patch) {
     const next = [...points];
     next[index] = { ...next[index], ...patch };
-    setSchedule({ ...schedule, [channel]: normalize(next) });
+    commit({ ...schedule, [channel]: normalize(next) });
   }
 
-  function addPoint() {
+  function addPoint(point) {
     const last = points.at(-1);
-    setSchedule({
+    commit({
       ...schedule,
-      [channel]: normalize([...points, { time: last ? Math.min(1439, last.time + 120) : 720, percent: last?.percent ?? 50 }]),
+      [channel]: normalize([...points, point || { time: last ? Math.min(1439, last.time + 120) : 720, percent: last?.percent ?? 50 }]),
     });
   }
 
@@ -214,20 +227,25 @@ function ScheduleView({ data, onSave }) {
           <p className="muted">{schedule.enabled ? "aktiv" : "inaktiv"} | CH1 {schedule.ch1.length} Punkte | CH2 {schedule.ch2.length} Punkte</p>
         </div>
         <div className="button-row">
-          <label className="switch"><input type="checkbox" checked={schedule.enabled} onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })} /> aktiv</label>
-          <button className="primary" onClick={() => onSave(schedule)}><Save size={16} /> Speichern</button>
+          <label className="switch"><input type="checkbox" checked={schedule.enabled} onChange={(e) => commit({ ...schedule, enabled: e.target.checked })} /> aktiv</label>
+          <button className="primary" onClick={() => onSave(schedule).then(() => setDirty(false))}><Save size={16} /> Speichern</button>
         </div>
       </div>
       <div className="schedule-layout">
-        <ScheduleChart schedule={schedule} active={channel} />
+        <ScheduleChart
+          schedule={schedule}
+          active={channel}
+          onAdd={(point) => addPoint(point)}
+          onMove={(index, point) => updatePoint(index, point)}
+        />
         <div className="editor-card">
           <div className="segmented">
             <button className={channel === "ch1" ? "active" : ""} onClick={() => setChannel("ch1")}>CH1</button>
             <button className={channel === "ch2" ? "active" : ""} onClick={() => setChannel("ch2")}>CH2</button>
           </div>
           <div className="button-row">
-            <button onClick={addPoint}><Plus size={16} /> Punkt</button>
-            <button className="danger" onClick={() => setSchedule({ ...schedule, [channel]: [] })}><Trash2 size={16} /> Leeren</button>
+            <button onClick={() => addPoint()}><Plus size={16} /> Punkt</button>
+            <button className="danger" onClick={() => commit({ ...schedule, [channel]: [] })}><Trash2 size={16} /> Leeren</button>
           </div>
           <div className="point-table">
             {points.map((point, index) => (
@@ -235,7 +253,7 @@ function ScheduleView({ data, onSave }) {
                 <span>{index + 1}</span>
                 <input type="time" value={timeLabel(point.time)} onChange={(e) => updatePoint(index, { time: parseTime(e.target.value) })} />
                 <input type="number" min={0} max={100} value={Math.round(point.percent)} onChange={(e) => updatePoint(index, { percent: Number(e.target.value) })} />
-                <button className="danger" onClick={() => setSchedule({ ...schedule, [channel]: points.filter((_, i) => i !== index) })}>x</button>
+                <button className="danger" onClick={() => commit({ ...schedule, [channel]: points.filter((_, i) => i !== index) })}>x</button>
               </div>
             ))}
           </div>
@@ -245,21 +263,86 @@ function ScheduleView({ data, onSave }) {
   );
 }
 
-function ScheduleChart({ schedule, active }) {
+function ScheduleChart({ schedule, active, onAdd, onMove }) {
+  const svgRef = useRef(null);
+  const [dragIndex, setDragIndex] = useState(null);
+  const activePoints = schedule[active];
+  const plot = { left: 72, top: 34, width: 884, height: 306 };
+  const xFor = (time) => plot.left + (time / 1439) * plot.width;
+  const yFor = (value) => plot.top + ((100 - value) / 100) * plot.height;
+  const toPoint = (event) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 1000;
+    const y = ((event.clientY - rect.top) / rect.height) * 420;
+    return {
+      time: Math.round(Math.max(0, Math.min(1439, ((x - plot.left) / plot.width) * 1439))),
+      percent: Math.round(Math.max(0, Math.min(100, 100 - ((y - plot.top) / plot.height) * 100))),
+    };
+  };
+
+  function handlePointerMove(event) {
+    if (dragIndex === null) return;
+    onMove(dragIndex, toPoint(event));
+  }
+
+  function handlePointerUp() {
+    setDragIndex(null);
+  }
+
   return (
     <div className="schedule-chart">
-      <svg viewBox="0 0 1000 420" preserveAspectRatio="none">
-        {[0, 1, 2, 3, 4, 5].map((line) => <line key={line} x1="40" x2="980" y1={360 - line * 64} y2={360 - line * 64} />)}
-        <Polyline points={schedule.ch1} color="#34c6ff" active={active === "ch1"} />
-        <Polyline points={schedule.ch2} color="#ffc857" active={active === "ch2"} />
+      <svg
+        ref={svgRef}
+        viewBox="0 0 1000 420"
+        onPointerDown={(event) => onAdd(toPoint(event))}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+      >
+        <rect className="plot-bg" x={plot.left} y={plot.top} width={plot.width} height={plot.height} rx="10" />
+        {[0, 25, 50, 75, 100].map((value) => (
+          <g key={value}>
+            <line className="grid-line" x1={plot.left} x2={plot.left + plot.width} y1={yFor(value)} y2={yFor(value)} />
+            <text className="axis-label" x="20" y={yFor(value) + 5}>{value}%</text>
+          </g>
+        ))}
+        {[0, 4, 8, 12, 16, 20, 24].map((hour) => (
+          <g key={hour}>
+            <line className="grid-line soft" x1={xFor(Math.min(1439, hour * 60))} x2={xFor(Math.min(1439, hour * 60))} y1={plot.top} y2={plot.top + plot.height} />
+            <text className="axis-label" x={xFor(Math.min(1439, hour * 60)) - 16} y="385">{String(hour).padStart(2, "0")}:00</text>
+          </g>
+        ))}
+        <Polyline points={schedule.ch1} color="#55cfff" active={active === "ch1"} xFor={xFor} yFor={yFor} plot={plot} />
+        <Polyline points={schedule.ch2} color="#ffd166" active={active === "ch2"} xFor={xFor} yFor={yFor} plot={plot} />
+        {activePoints.map((point, index) => (
+          <g
+            className="chart-handle"
+            key={`${active}-${index}`}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              setDragIndex(index);
+              svgRef.current?.setPointerCapture(event.pointerId);
+            }}
+          >
+            <circle cx={xFor(point.time)} cy={yFor(point.percent)} r="13" />
+            <text x={xFor(point.time)} y={yFor(point.percent) - 22}>{timeLabel(point.time)} / {Math.round(point.percent)}%</text>
+          </g>
+        ))}
       </svg>
     </div>
   );
 }
 
-function Polyline({ points, color, active }) {
-  const d = points.map((point) => `${40 + (point.time / 1439) * 940},${360 - (point.percent / 100) * 320}`).join(" ");
-  return <polyline points={d} fill="none" stroke={color} strokeWidth={active ? 7 : 4} opacity={active ? 1 : 0.45} />;
+function Polyline({ points, color, active, xFor, yFor, plot }) {
+  if (!points.length) return null;
+  const line = points.map((point) => `${xFor(point.time)},${yFor(point.percent)}`).join(" ");
+  const area = `${xFor(points[0].time)},${plot.top + plot.height} ${line} ${xFor(points.at(-1).time)},${plot.top + plot.height}`;
+  return (
+    <g opacity={active ? 1 : 0.42}>
+      <polygon points={area} fill={color} opacity={active ? 0.14 : 0.06} />
+      <polyline points={line} fill="none" stroke={color} strokeWidth={active ? 6 : 4} strokeLinecap="round" strokeLinejoin="round" />
+    </g>
+  );
 }
 
 function LogsView({ data, onSaveConfig, onClear }) {
