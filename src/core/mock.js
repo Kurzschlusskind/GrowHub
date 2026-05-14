@@ -1,6 +1,4 @@
-import type { LightingData } from "./types";
-
-export const mockLightingData: LightingData = {
+export const mockLightingData = {
   status: {
     firmware: "mock",
     desired: { ch1: 42, ch2: 28 },

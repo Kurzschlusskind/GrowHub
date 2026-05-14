@@ -1,16 +1,15 @@
 import { createApiClient } from "../../core/api";
-import type { LightingData, LightingSchedule, ThermalConfig } from "../../core/types";
 
-export function createLightingAdapter(endpoint?: string) {
+export function createLightingAdapter(endpoint) {
   const api = createApiClient(endpoint);
 
   return {
-    async load(): Promise<LightingData> {
+    async load() {
       const [status, schedule, presets, logs] = await Promise.all([
-        api.get<LightingData["status"]>("/api/status"),
-        api.get<LightingSchedule>("/api/schedules"),
-        api.get<{ presets: LightingData["presets"] }>("/api/presets"),
-        api.get<{ config: LightingData["logConfig"]; records: LightingData["logs"] }>("/api/logs"),
+        api.get("/api/status"),
+        api.get("/api/schedules"),
+        api.get("/api/presets"),
+        api.get("/api/logs"),
       ]);
 
       return {
@@ -22,19 +21,19 @@ export function createLightingAdapter(endpoint?: string) {
       };
     },
 
-    setLevels(ch1: number, ch2: number) {
+    setLevels(ch1, ch2) {
       return api.post("/api/levels", { ch1, ch2 });
     },
 
-    saveSchedule(schedule: LightingSchedule) {
+    saveSchedule(schedule) {
       return api.post("/api/schedules", schedule);
     },
 
-    saveThermal(config: ThermalConfig) {
+    saveThermal(config) {
       return api.post("/api/thermal", config);
     },
 
-    saveLogConfig(config: LightingData["logConfig"]) {
+    saveLogConfig(config) {
       return api.post("/api/logs/config", config);
     },
 

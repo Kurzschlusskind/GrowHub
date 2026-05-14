@@ -13,4 +13,4 @@ export const deviceCatalog = {
     label: "Klima",
     createAdapter: () => null,
   },
-} as const;
+};

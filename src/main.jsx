@@ -2,24 +2,21 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Activity, Clock3, Droplets, Fan, Gauge, Leaf, Lightbulb, ListTodo, Plus, Power, Save, Settings, Trash2, Waves, Wifi } from "lucide-react";
 import { createLightingAdapter } from "./devices/lighting/adapter";
-import type { DeviceDefinition, LightingData, LightingSchedule, SchedulePoint, ThermalConfig } from "./core/types";
 import { parseTime, percent, timeLabel } from "./core/format";
 import "./styles/app.css";
 
 const endpoint = new URLSearchParams(location.search).get("lighting") || "";
 
-const devices: DeviceDefinition[] = [
+const devices = [
   { id: "lighting-main", name: "Lighting Controller", type: "lighting-rs485", endpoint },
   { id: "irrigation-next", name: "Irrigation Controller", type: "irrigation" },
   { id: "climate-next", name: "Climate Controller", type: "climate" },
 ];
 
-type View = "dashboard" | "schedule" | "logs" | "system";
-
 function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState("dashboard");
   const [activeDeviceId, setActiveDeviceId] = useState("lighting-main");
-  const [lighting, setLighting] = useState<LightingData | null>(null);
+  const [lighting, setLighting] = useState(null);
   const [error, setError] = useState("");
   const adapter = useMemo(() => createLightingAdapter(endpoint), []);
 
@@ -118,7 +115,7 @@ function App() {
   );
 }
 
-function ComingSoon({ device }: { device: DeviceDefinition }) {
+function ComingSoon({ device }) {
   return (
     <section className="panel">
       <h2>{device.name}</h2>
@@ -127,7 +124,7 @@ function ComingSoon({ device }: { device: DeviceDefinition }) {
   );
 }
 
-function LiveView({ data, onSetLevels }: { data: LightingData; onSetLevels: (ch1: number, ch2: number) => Promise<void> }) {
+function LiveView({ data, onSetLevels }) {
   const [ch1, setCh1] = useState(data.status.desired.ch1);
   const [ch2, setCh2] = useState(data.status.desired.ch2);
 
@@ -172,7 +169,7 @@ function LiveView({ data, onSetLevels }: { data: LightingData; onSetLevels: (ch1
   );
 }
 
-function ChannelCard({ name, value, applied, color, onChange }: { name: string; value: number; applied: number; color: string; onChange: (value: number) => void }) {
+function ChannelCard({ name, value, applied, color, onChange }) {
   return (
     <div className={`channel-card ${color}`}>
       <div className="channel-top">
@@ -188,14 +185,14 @@ function ChannelCard({ name, value, applied, color, onChange }: { name: string; 
   );
 }
 
-function ScheduleView({ data, onSave }: { data: LightingData; onSave: (schedule: LightingSchedule) => Promise<void> }) {
+function ScheduleView({ data, onSave }) {
   const [schedule, setSchedule] = useState(data.schedule);
-  const [channel, setChannel] = useState<"ch1" | "ch2">("ch1");
+  const [channel, setChannel] = useState("ch1");
   const points = schedule[channel];
 
   useEffect(() => setSchedule(data.schedule), [data.schedule]);
 
-  function updatePoint(index: number, patch: Partial<SchedulePoint>) {
+  function updatePoint(index, patch) {
     const next = [...points];
     next[index] = { ...next[index], ...patch };
     setSchedule({ ...schedule, [channel]: normalize(next) });
@@ -248,7 +245,7 @@ function ScheduleView({ data, onSave }: { data: LightingData; onSave: (schedule:
   );
 }
 
-function ScheduleChart({ schedule, active }: { schedule: LightingSchedule; active: "ch1" | "ch2" }) {
+function ScheduleChart({ schedule, active }) {
   return (
     <div className="schedule-chart">
       <svg viewBox="0 0 1000 420" preserveAspectRatio="none">
@@ -260,12 +257,12 @@ function ScheduleChart({ schedule, active }: { schedule: LightingSchedule; activ
   );
 }
 
-function Polyline({ points, color, active }: { points: SchedulePoint[]; color: string; active: boolean }) {
+function Polyline({ points, color, active }) {
   const d = points.map((point) => `${40 + (point.time / 1439) * 940},${360 - (point.percent / 100) * 320}`).join(" ");
   return <polyline points={d} fill="none" stroke={color} strokeWidth={active ? 7 : 4} opacity={active ? 1 : 0.45} />;
 }
 
-function LogsView({ data, onSaveConfig, onClear }: { data: LightingData; onSaveConfig: (config: LightingData["logConfig"]) => Promise<void>; onClear: () => Promise<void> }) {
+function LogsView({ data, onSaveConfig, onClear }) {
   const [config, setConfig] = useState(data.logConfig);
   return (
     <section className="panel">
@@ -290,7 +287,7 @@ function LogsView({ data, onSaveConfig, onClear }: { data: LightingData; onSaveC
   );
 }
 
-function SystemView({ data, onSaveThermal }: { data: LightingData; onSaveThermal: (config: ThermalConfig) => Promise<void> }) {
+function SystemView({ data, onSaveThermal }) {
   const [thermal, setThermal] = useState(data.status.thermal.config);
   return (
     <section className="panel">
@@ -311,7 +308,7 @@ function SystemView({ data, onSaveThermal }: { data: LightingData; onSaveThermal
   );
 }
 
-function normalize(points: SchedulePoint[]) {
+function normalize(points) {
   return points
     .map((point) => ({
       time: Math.max(0, Math.min(1439, point.time)),
@@ -321,4 +318,4 @@ function normalize(points: SchedulePoint[]) {
     .slice(0, 16);
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")).render(<App />);
