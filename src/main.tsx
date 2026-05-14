@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, Droplets, Fan, Lightbulb, ListTodo, Settings, Waves } from "lucide-react";
+import { Activity, Clock3, Droplets, Fan, Gauge, Leaf, Lightbulb, ListTodo, Plus, Power, Save, Settings, Trash2, Waves, Wifi } from "lucide-react";
 import { createLightingAdapter } from "./devices/lighting/adapter";
 import type { DeviceDefinition, LightingData, LightingSchedule, SchedulePoint, ThermalConfig } from "./core/types";
 import { parseTime, percent, timeLabel } from "./core/format";
@@ -43,20 +43,29 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <div className="eyebrow">GrowHub</div>
-          <h1>Control Center</h1>
+        <div className="brand-block">
+          <div className="brand-mark"><Leaf size={24} /></div>
+          <div>
+            <div className="eyebrow">GrowHub</div>
+            <h1>Grow Room Console</h1>
+            <p className="muted">Licht, Klima und Bewaesserung als ein lokales System</p>
+          </div>
         </div>
         <div className="status-strip">
-          <span className={error ? "status bad" : "status ok"}>{error || "online"}</span>
-          <span className="status">{lighting?.status.wifi.ip || "mock"}</span>
-          <span className="status">{lighting?.status.wifi.ssid || "no wifi"}</span>
+          <span className={error ? "status bad" : "status ok"}><Activity size={15} />{error || "online"}</span>
+          <span className="status"><Wifi size={15} />{lighting?.status.wifi.ip || "mock"}</span>
+          <span className="status"><Clock3 size={15} />{new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span>
         </div>
       </header>
 
       <section className="layout">
         <aside className="sidebar">
-          <div className="sidebar-title">Geraete</div>
+          <div className="room-card">
+            <span>Raum</span>
+            <strong>Bluetezelt</strong>
+            <small>{lighting?.status.wifi.connected ? lighting.status.wifi.ssid : "Mock Betrieb"}</small>
+          </div>
+          <div className="sidebar-title">Controller</div>
           {devices.map((device) => (
             <button
               className={`device-button ${activeDeviceId === device.id ? "active" : ""}`}
@@ -77,10 +86,10 @@ function App() {
         <section className="workspace">
           <nav className="view-tabs">
             <button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>
-              <Activity size={17} /> Live
+              <Gauge size={17} /> Live-Konsole
             </button>
             <button className={view === "schedule" ? "active" : ""} onClick={() => setView("schedule")}>
-              <ListTodo size={17} /> Zeitplan
+              <ListTodo size={17} /> Tageskurve
             </button>
             <button className={view === "logs" ? "active" : ""} onClick={() => setView("logs")}>
               <Waves size={17} /> Logs
@@ -128,22 +137,36 @@ function LiveView({ data, onSetLevels }: { data: LightingData; onSetLevels: (ch1
   }, [data.status.desired.ch1, data.status.desired.ch2]);
 
   return (
-    <section className="panel">
+    <section className="live-console">
       <div className="panel-head">
         <div>
-          <h2>Live Output</h2>
-          <p className="muted">Direkte Steuerung des aktiven Lichtcontrollers.</p>
+          <h2>RS485 Lichtpult</h2>
+          <p className="muted">Direkte Kanalsteuerung mit angewendetem Thermal-Limit.</p>
         </div>
         <div className="button-row">
           {[25, 50, 75].map((value) => (
             <button key={value} onClick={() => { setCh1(value); setCh2(value); onSetLevels(value, value); }}>{value}%</button>
           ))}
-          <button className="danger" onClick={() => { setCh1(0); setCh2(0); onSetLevels(0, 0); }}>Aus</button>
+          <button className="danger" onClick={() => { setCh1(0); setCh2(0); onSetLevels(0, 0); }}><Power size={16} /> Aus</button>
         </div>
       </div>
-      <div className="channel-grid">
+      <div className="console-grid">
         <ChannelCard name="CH1" value={ch1} applied={data.status.applied.ch1} color="blue" onChange={(value) => { setCh1(value); onSetLevels(value, ch2); }} />
         <ChannelCard name="CH2" value={ch2} applied={data.status.applied.ch2} color="amber" onChange={(value) => { setCh2(value); onSetLevels(ch1, value); }} />
+        <div className="telemetry-card">
+          <div>
+            <span>Thermal</span>
+            <strong>{data.status.thermal.sensorPresent ? `${data.status.thermal.temperatureC.toFixed(1)} C` : "Sensor fehlt"}</strong>
+          </div>
+          <div>
+            <span>Output</span>
+            <strong>{data.status.thermal.overrideActive ? "limitiert" : "frei"}</strong>
+          </div>
+          <div>
+            <span>Firmware</span>
+            <strong>{data.status.firmware}</strong>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -156,7 +179,9 @@ function ChannelCard({ name, value, applied, color, onChange }: { name: string; 
         <h3>{name}</h3>
         <strong>{percent(value)}</strong>
       </div>
-      <input type="range" min={0} max={100} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      <div className="fader-wrap">
+        <input type="range" min={0} max={100} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      </div>
       <div className="bar"><span style={{ width: `${applied}%` }} /></div>
       <small>applied {percent(applied)}</small>
     </div>
@@ -193,7 +218,7 @@ function ScheduleView({ data, onSave }: { data: LightingData; onSave: (schedule:
         </div>
         <div className="button-row">
           <label className="switch"><input type="checkbox" checked={schedule.enabled} onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })} /> aktiv</label>
-          <button className="primary" onClick={() => onSave(schedule)}>Speichern</button>
+          <button className="primary" onClick={() => onSave(schedule)}><Save size={16} /> Speichern</button>
         </div>
       </div>
       <div className="schedule-layout">
@@ -204,8 +229,8 @@ function ScheduleView({ data, onSave }: { data: LightingData; onSave: (schedule:
             <button className={channel === "ch2" ? "active" : ""} onClick={() => setChannel("ch2")}>CH2</button>
           </div>
           <div className="button-row">
-            <button onClick={addPoint}>+ Punkt</button>
-            <button className="danger" onClick={() => setSchedule({ ...schedule, [channel]: [] })}>Leeren</button>
+            <button onClick={addPoint}><Plus size={16} /> Punkt</button>
+            <button className="danger" onClick={() => setSchedule({ ...schedule, [channel]: [] })}><Trash2 size={16} /> Leeren</button>
           </div>
           <div className="point-table">
             {points.map((point, index) => (
