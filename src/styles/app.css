@@ -91,11 +91,12 @@ p {
 }
 
 .app-shell {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 18px;
+  width: 100%;
+  min-height: 100vh;
+  padding: clamp(16px, 2vw, 28px);
   display: grid;
   gap: 16px;
+  align-content: start;
 }
 
 .topbar {
@@ -170,8 +171,8 @@ small {
 
 .layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: clamp(16px, 1.4vw, 24px);
 }
 
 .sidebar,
@@ -268,8 +269,8 @@ small {
 
 .console-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 240px;
-  gap: 12px;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr) 280px;
+  gap: clamp(12px, 1vw, 18px);
   align-items: stretch;
 }
 
@@ -434,8 +435,8 @@ small {
 
 .schedule-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
-  gap: 14px;
+  grid-template-columns: minmax(520px, 1fr) 420px;
+  gap: clamp(14px, 1.2vw, 22px);
 }
 
 .schedule-chart,
