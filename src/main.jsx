@@ -5,7 +5,9 @@ import { createLightingAdapter } from "./devices/lighting/adapter";
 import { parseTime, percent, timeLabel } from "./core/format";
 import "./styles/app.css";
 
-const endpoint = new URLSearchParams(location.search).get("lighting") || "";
+const params = new URLSearchParams(location.search);
+const endpoint = params.get("lighting") || "";
+const initialView = ["dashboard", "schedule", "logs", "system"].includes(params.get("view")) ? params.get("view") : "dashboard";
 
 const devices = [
   { id: "lighting-main", name: "Lighting Controller", type: "lighting-rs485", endpoint },
@@ -14,7 +16,7 @@ const devices = [
 ];
 
 function App() {
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState(initialView);
   const [activeDeviceId, setActiveDeviceId] = useState("lighting-main");
   const [lighting, setLighting] = useState(null);
   const [error, setError] = useState("");
@@ -324,8 +326,8 @@ function ScheduleChart({ schedule, active, onAdd, onMove }) {
               svgRef.current?.setPointerCapture(event.pointerId);
             }}
           >
-            <circle cx={xFor(point.time)} cy={yFor(point.percent)} r="13" />
-            <text x={xFor(point.time)} y={yFor(point.percent) - 22}>{timeLabel(point.time)} / {Math.round(point.percent)}%</text>
+            <circle cx={xFor(point.time)} cy={yFor(point.percent)} r="9" />
+            <text x={xFor(point.time)} y={yFor(point.percent) - 15}>{timeLabel(point.time)} / {Math.round(point.percent)}%</text>
           </g>
         ))}
       </svg>

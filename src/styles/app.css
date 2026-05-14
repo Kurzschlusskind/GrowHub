@@ -435,13 +435,15 @@ small {
 
 .schedule-layout {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) 420px;
+  grid-template-columns: minmax(560px, 1fr) 360px;
   gap: clamp(14px, 1.2vw, 22px);
+  align-items: start;
 }
 
 .schedule-chart,
 .log-chart {
-  min-height: 430px;
+  height: clamp(360px, 42vh, 500px);
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
@@ -454,7 +456,7 @@ small {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 430px;
+  min-height: 0;
   cursor: crosshair;
 }
 
@@ -475,7 +477,7 @@ small {
 
 .axis-label {
   fill: var(--muted);
-  font-size: 18px;
+  font-size: 11px;
   font-weight: 700;
   user-select: none;
   pointer-events: none;
@@ -492,16 +494,16 @@ small {
 .chart-handle circle {
   fill: var(--text);
   stroke: var(--leaf);
-  stroke-width: 5;
+  stroke-width: 3;
   filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.48));
 }
 
 .chart-handle text {
   fill: var(--text);
   stroke: #06100a;
-  stroke-width: 4;
+  stroke-width: 2.5;
   paint-order: stroke;
-  font-size: 16px;
+  font-size: 10px;
   font-weight: 800;
   text-anchor: middle;
   pointer-events: none;
@@ -515,6 +517,7 @@ small {
   padding: 12px;
   display: grid;
   gap: 10px;
+  align-content: start;
 }
 
 .point-table {
