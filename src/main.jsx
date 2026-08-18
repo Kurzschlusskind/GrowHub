@@ -144,7 +144,16 @@ function App() {
     } else if (prev.overrideActive && !current.overrideActive) {
       body = `Entwarnung — Normalbetrieb${temperature}`;
     }
-    if (body) new Notification("GrowHub · Thermal Supervisor", { body, tag: "growhub-supervisor" });
+    if (body) {
+      // Unique tag per event: a shared tag would make the browser replace the
+      // previous notification silently instead of alerting again.
+      const tag = `growhub-supervisor-${current.overrideActive ? current.stageIndex ?? "on" : "off"}-${Date.now()}`;
+      try {
+        new Notification("GrowHub · Thermal Supervisor", { body, tag, renotify: true });
+      } catch {
+        /* some platforms only allow notifications via a service worker */
+      }
+    }
   }, [deviceData, notifyEnabled]);
 
   async function toggleNotifications(enabled) {
@@ -164,10 +173,14 @@ function App() {
     }
     setNotifyEnabled(true);
     localStorage.setItem("growhub.notify", "on");
-    new Notification("GrowHub · Thermal Supervisor", {
-      body: "Benachrichtigungen aktiv — du wirst bei jedem Supervisor-Eingriff informiert.",
-      tag: "growhub-supervisor",
-    });
+    try {
+      new Notification("GrowHub · Thermal Supervisor", {
+        body: "Benachrichtigungen aktiv — du wirst bei jedem Supervisor-Eingriff informiert.",
+        tag: `growhub-supervisor-enabled-${Date.now()}`,
+      });
+    } catch {
+      /* some platforms only allow notifications via a service worker */
+    }
   }
 
   const isLighting = activeDevice.type === "lighting-rs485";

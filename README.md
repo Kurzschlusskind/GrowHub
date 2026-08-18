@@ -45,6 +45,12 @@ src/styles/     design system and layout
 tools/          firmware embedding helpers
 ```
 
+## License
+
+**All rights reserved.** This repository is public for demonstration purposes
+only — using the code in any form requires the explicit written permission of
+the author. See [LICENSE](LICENSE).
+
 ## Deployment
 
 Every push to `main` builds the app and deploys it to GitHub Pages via GitHub Actions (`.github/workflows/deploy.yml`). The build uses a relative base path, so the same bundle also works when embedded into ESP firmware.
