@@ -213,6 +213,18 @@ function ScheduleView({ data, onSave }) {
     commit({ ...schedule, [channel]: normalize(next) });
   }
 
+  // During a drag the array must keep its order, otherwise the dragged index
+  // would suddenly refer to a neighbouring point; sorting happens on drag end.
+  function movePoint(index, point) {
+    const next = [...points];
+    next[index] = point;
+    commit({ ...schedule, [channel]: next });
+  }
+
+  function endDrag() {
+    commit({ ...schedule, [channel]: normalize(points) });
+  }
+
   function addPoint(point) {
     const last = points.at(-1);
     commit({
@@ -238,7 +250,8 @@ function ScheduleView({ data, onSave }) {
           schedule={schedule}
           active={channel}
           onAdd={(point) => addPoint(point)}
-          onMove={(index, point) => updatePoint(index, point)}
+          onMove={(index, point) => movePoint(index, point)}
+          onDragEnd={endDrag}
         />
         <div className="editor-card">
           <div className="segmented">
@@ -253,7 +266,7 @@ function ScheduleView({ data, onSave }) {
             {points.map((point, index) => (
               <div className="point-row" key={`${point.time}-${index}`}>
                 <span>{index + 1}</span>
-                <input type="time" value={timeLabel(point.time)} onChange={(e) => updatePoint(index, { time: parseTime(e.target.value) })} />
+                <input type="time" value={timeLabel(point.time)} onChange={(e) => { const time = parseTime(e.target.value); if (time !== null) updatePoint(index, { time }); }} />
                 <input type="number" min={0} max={100} value={Math.round(point.percent)} onChange={(e) => updatePoint(index, { percent: Number(e.target.value) })} />
                 <button className="danger" onClick={() => commit({ ...schedule, [channel]: points.filter((_, i) => i !== index) })}>x</button>
               </div>
@@ -265,17 +278,39 @@ function ScheduleView({ data, onSave }) {
   );
 }
 
-function ScheduleChart({ schedule, active, onAdd, onMove }) {
+function ScheduleChart({ schedule, active, onAdd, onMove, onDragEnd }) {
+  const wrapRef = useRef(null);
   const svgRef = useRef(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
   const [dragIndex, setDragIndex] = useState(null);
   const activePoints = schedule[active];
-  const plot = { left: 72, top: 34, width: 884, height: 306 };
+
+  // The svg is rendered 1:1 in CSS pixels (viewBox = container size) so that
+  // pointer coordinates map directly to chart coordinates without letterboxing.
+  useEffect(() => {
+    const el = wrapRef.current;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setSize((prev) => (prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height }));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  const plot = { left: 52, top: 26, width: Math.max(0, size.w - 52 - 16), height: Math.max(0, size.h - 26 - 38) };
   const xFor = (time) => plot.left + (time / 1439) * plot.width;
   const yFor = (value) => plot.top + ((100 - value) / 100) * plot.height;
+  const labelX = (time) => Math.max(plot.left + 34, Math.min(size.w - 44, xFor(time)));
   const toPoint = (event) => {
     const rect = svgRef.current.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 1000;
-    const y = ((event.clientY - rect.top) / rect.height) * 420;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
     return {
       time: Math.round(Math.max(0, Math.min(1439, ((x - plot.left) / plot.width) * 1439))),
       percent: Math.round(Math.max(0, Math.min(100, 100 - ((y - plot.top) / plot.height) * 100))),
@@ -288,55 +323,63 @@ function ScheduleChart({ schedule, active, onAdd, onMove }) {
   }
 
   function handlePointerUp() {
+    if (dragIndex === null) return;
     setDragIndex(null);
+    onDragEnd();
   }
 
   return (
-    <div className="schedule-chart">
-      <svg
-        ref={svgRef}
-        viewBox="0 0 1000 420"
-        onPointerDown={(event) => onAdd(toPoint(event))}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-      >
-        <rect className="plot-bg" x={plot.left} y={plot.top} width={plot.width} height={plot.height} rx="10" />
-        {[0, 25, 50, 75, 100].map((value) => (
-          <g key={value}>
-            <line className="grid-line" x1={plot.left} x2={plot.left + plot.width} y1={yFor(value)} y2={yFor(value)} />
-            <text className="axis-label" x="20" y={yFor(value) + 5}>{value}%</text>
-          </g>
-        ))}
-        {[0, 4, 8, 12, 16, 20, 24].map((hour) => (
-          <g key={hour}>
-            <line className="grid-line soft" x1={xFor(Math.min(1439, hour * 60))} x2={xFor(Math.min(1439, hour * 60))} y1={plot.top} y2={plot.top + plot.height} />
-            <text className="axis-label" x={xFor(Math.min(1439, hour * 60)) - 16} y="385">{String(hour).padStart(2, "0")}:00</text>
-          </g>
-        ))}
-        <Polyline points={schedule.ch1} color="#55cfff" active={active === "ch1"} xFor={xFor} yFor={yFor} plot={plot} />
-        <Polyline points={schedule.ch2} color="#ffd166" active={active === "ch2"} xFor={xFor} yFor={yFor} plot={plot} />
-        {activePoints.map((point, index) => (
-          <g
-            className="chart-handle"
-            key={`${active}-${index}`}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              setDragIndex(index);
-              svgRef.current?.setPointerCapture(event.pointerId);
-            }}
-          >
-            <circle cx={xFor(point.time)} cy={yFor(point.percent)} r="9" />
-            <text x={xFor(point.time)} y={yFor(point.percent) - 15}>{timeLabel(point.time)} / {Math.round(point.percent)}%</text>
-          </g>
-        ))}
-      </svg>
+    <div className="schedule-chart" ref={wrapRef}>
+      {size.w > 0 && (
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${size.w} ${size.h}`}
+          onPointerDown={(event) => onAdd(toPoint(event))}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <rect className="plot-bg" x={plot.left} y={plot.top} width={plot.width} height={plot.height} rx="10" />
+          {[0, 25, 50, 75, 100].map((value) => (
+            <g key={value}>
+              <line className="grid-line" x1={plot.left} x2={plot.left + plot.width} y1={yFor(value)} y2={yFor(value)} />
+              <text className="axis-label" x={plot.left - 8} y={yFor(value) + 4} textAnchor="end">{value}%</text>
+            </g>
+          ))}
+          {[0, 4, 8, 12, 16, 20, 24].map((hour) => (
+            <g key={hour}>
+              <line className="grid-line soft" x1={xFor(Math.min(1439, hour * 60))} x2={xFor(Math.min(1439, hour * 60))} y1={plot.top} y2={plot.top + plot.height} />
+              <text className="axis-label" x={xFor(Math.min(1439, hour * 60))} y={size.h - 14} textAnchor="middle">{String(hour).padStart(2, "0")}:00</text>
+            </g>
+          ))}
+          <Polyline points={schedule.ch1} color="#55cfff" active={active === "ch1"} xFor={xFor} yFor={yFor} plot={plot} />
+          <Polyline points={schedule.ch2} color="#ffd166" active={active === "ch2"} xFor={xFor} yFor={yFor} plot={plot} />
+          {activePoints.map((point, index) => (
+            <g
+              className="chart-handle"
+              key={`${active}-${index}`}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                setDragIndex(index);
+                svgRef.current?.setPointerCapture(event.pointerId);
+              }}
+            >
+              <circle className="hit" cx={xFor(point.time)} cy={yFor(point.percent)} r="17" />
+              <circle cx={xFor(point.time)} cy={yFor(point.percent)} r="8" />
+              <text x={labelX(point.time)} y={Math.max(14, yFor(point.percent) - 15)}>{timeLabel(point.time)} / {Math.round(point.percent)}%</text>
+            </g>
+          ))}
+        </svg>
+      )}
     </div>
   );
 }
 
-function Polyline({ points, color, active, xFor, yFor, plot }) {
-  if (!points.length) return null;
+function Polyline({ points: rawPoints, color, active, xFor, yFor, plot }) {
+  if (!rawPoints.length) return null;
+  // Sort a copy: while a handle is being dragged the source array is
+  // intentionally left unsorted so the drag index stays stable.
+  const points = [...rawPoints].sort((a, b) => a.time - b.time);
   const line = points.map((point) => `${xFor(point.time)},${yFor(point.percent)}`).join(" ");
   const area = `${xFor(points[0].time)},${plot.top + plot.height} ${line} ${xFor(points.at(-1).time)},${plot.top + plot.height}`;
   return (
@@ -396,8 +439,8 @@ function SystemView({ data, onSaveThermal }) {
 function normalize(points) {
   return points
     .map((point) => ({
-      time: Math.max(0, Math.min(1439, point.time)),
-      percent: Math.max(0, Math.min(100, point.percent)),
+      time: Math.max(0, Math.min(1439, Number.isFinite(point.time) ? point.time : 0)),
+      percent: Math.max(0, Math.min(100, Number.isFinite(point.percent) ? point.percent : 0)),
     }))
     .sort((a, b) => a.time - b.time)
     .slice(0, 16);

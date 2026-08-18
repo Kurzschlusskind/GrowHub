@@ -458,6 +458,7 @@ small {
   height: 100%;
   min-height: 0;
   cursor: crosshair;
+  touch-action: none;
 }
 
 .plot-bg {
@@ -496,6 +497,12 @@ small {
   stroke: var(--leaf);
   stroke-width: 3;
   filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.48));
+}
+
+.chart-handle circle.hit {
+  fill: transparent;
+  stroke: none;
+  filter: none;
 }
 
 .chart-handle text {

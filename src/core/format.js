@@ -9,6 +9,7 @@ export function timeLabel(minute) {
 }
 
 export function parseTime(value) {
-  const [hours, minutes] = value.split(":").map(Number);
+  const [hours, minutes] = (value || "").split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   return Math.max(0, Math.min(1439, hours * 60 + minutes));
 }
