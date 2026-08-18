@@ -52,6 +52,76 @@ export const mockLightingData = {
   logConfig: { enabled: true, intervalMinutes: 15 },
 };
 
+/* ---------- thermal supervisor drill ---------- */
+
+// Simulated over-temperature event that plays the whole escalation chain:
+// dim lights -> fan to 100% (climate, planned) -> drain nutrient solution ->
+// flush roots via irrigation -> recover. Stage timing in seconds.
+const DRILL_STAGE_ENDS = [4, 12, 20, 28, 36, 44]; // detect, dim, fan, drain, flush, recover
+const DRILL_TOTAL_SECONDS = 44;
+
+const thermalDrill = { active: false, startedAt: 0, flushLogged: false };
+
+export function mockThermalDrillRequest(path) {
+  if (path === "/api/thermal/drill/start") {
+    thermalDrill.active = true;
+    thermalDrill.startedAt = Date.now();
+    thermalDrill.flushLogged = false;
+    return { ok: true };
+  }
+  if (path === "/api/thermal/drill/stop") {
+    thermalDrill.active = false;
+    return { ok: true };
+  }
+  return {};
+}
+
+function drillState() {
+  if (!thermalDrill.active) return null;
+  const elapsed = (Date.now() - thermalDrill.startedAt) / 1000;
+  if (elapsed >= DRILL_TOTAL_SECONDS) {
+    thermalDrill.active = false;
+    return null;
+  }
+  // Log the emergency flush into the irrigation history once its stage ends.
+  if (elapsed >= DRILL_STAGE_ENDS[4] && !thermalDrill.flushLogged) {
+    thermalDrill.flushLogged = true;
+    mockIrrigationData.history.unshift({ at: Date.now(), zone: "z1", durationSeconds: 8, trigger: "thermal" });
+    mockIrrigationData.history = mockIrrigationData.history.slice(0, 20);
+  }
+  const stageIndex = DRILL_STAGE_ENDS.findIndex((end) => elapsed < end) - 1; // -1 = detect phase
+  let temperatureC;
+  if (elapsed < 20) temperatureC = 28.4 + (elapsed / 20) * 13.6;
+  else if (elapsed < 32) temperatureC = 42 - ((elapsed - 20) / 12) * 2;
+  else temperatureC = 40 - ((elapsed - 32) / 12) * 12.5;
+  return {
+    active: true,
+    elapsed,
+    stageIndex,
+    temperatureC: Math.round(temperatureC * 10) / 10,
+    totalSeconds: DRILL_TOTAL_SECONDS,
+  };
+}
+
+export function mockLightingStatus() {
+  const status = structuredClone(mockLightingData.status);
+  const drill = drillState();
+  if (drill) {
+    const limit = status.thermal.config.overridePercent;
+    status.thermal.sensorPresent = true;
+    status.thermal.temperatureC = drill.temperatureC;
+    status.thermal.overrideActive = drill.stageIndex >= 0 && drill.stageIndex < 4;
+    if (status.thermal.overrideActive) {
+      status.applied = {
+        ch1: Math.min(status.applied.ch1, limit),
+        ch2: Math.min(status.applied.ch2, limit),
+      };
+    }
+    status.thermal.drill = drill;
+  }
+  return status;
+}
+
 /* ---------- irrigation ---------- */
 
 function hoursAgo(hours) {
@@ -101,16 +171,30 @@ export function mockIrrigationRequest(path, init = {}) {
 
   if (path === "/api/irrigation/status") {
     const pump = data.status.pump;
+    // During the supervisor drill's flush stage the pump runs the emergency
+    // root-cooling flush (unless a manual run already holds it).
+    const drill = drillState();
+    const flush = !pump.running && drill && drill.stageIndex === 3
+      ? { zone: "z1", remainingSeconds: Math.max(0, Math.round(36 - drill.elapsed)) }
+      : null;
     const remainingSeconds = pump.running
       ? Math.max(0, Math.round(pump.durationSeconds - (Date.now() - pump.startedAt) / 1000))
-      : 0;
+      : flush
+        ? flush.remainingSeconds
+        : 0;
+    const activeZone = pump.running ? pump.zone : flush ? flush.zone : null;
     return {
       firmware: data.status.firmware,
       wifi: structuredClone(data.status.wifi),
-      pump: { running: pump.running, zone: pump.zone, durationSeconds: pump.durationSeconds, remainingSeconds },
+      pump: {
+        running: pump.running || !!flush,
+        zone: activeZone,
+        durationSeconds: pump.running ? pump.durationSeconds : flush ? 8 : 0,
+        remainingSeconds,
+      },
       zones: data.status.zones.map((zone) => ({
         ...zone,
-        state: pump.running && pump.zone === zone.id ? "running" : zone.state,
+        state: activeZone === zone.id ? "running" : zone.state,
       })),
     };
   }

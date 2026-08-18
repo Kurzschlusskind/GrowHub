@@ -678,6 +678,93 @@ select:focus {
   margin-top: 2px;
 }
 
+/* ---------- thermal supervisor drill ---------- */
+
+.panel.drill {
+  border-color: #7a4d26;
+}
+
+.drill .panel-title {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: #e8a35c;
+}
+
+.drill-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2f36;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.drill-progress span {
+  display: block;
+  height: 100%;
+  background: #e8821e;
+  transition: width 1s linear;
+}
+
+.drill-stages {
+  display: grid;
+  gap: 12px;
+}
+
+.drill-stage {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.drill-stage strong {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
+.drill-stage p {
+  font-size: 12px;
+}
+
+.drill-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  margin-top: 4px;
+  flex: none;
+}
+
+.drill-stage.done .drill-dot {
+  background: var(--ok);
+}
+
+.drill-stage.active .drill-dot {
+  background: #e8821e;
+  animation: drill-pulse 1.2s ease-out infinite;
+}
+
+.drill-stage.pending {
+  opacity: 0.55;
+}
+
+@keyframes drill-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(232, 130, 30, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(232, 130, 30, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 130, 30, 0);
+  }
+}
+
+.badge.alert {
+  border-color: #7a4d26;
+  color: #e8a35c;
+}
+
 /* ---------- irrigation ---------- */
 
 .zone-grid {

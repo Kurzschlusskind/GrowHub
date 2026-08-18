@@ -18,6 +18,7 @@ export function createLightingAdapter(endpoint) {
         presets: presets.presets || [],
         logs: logs.records || [],
         logConfig: logs.config || { enabled: true, intervalMinutes: 15 },
+        receivedAt: Date.now(),
       };
     },
 
@@ -35,6 +36,14 @@ export function createLightingAdapter(endpoint) {
 
     saveThermal(config) {
       return api.post("/api/thermal", config);
+    },
+
+    startThermalDrill() {
+      return api.post("/api/thermal/drill/start", {});
+    },
+
+    stopThermalDrill() {
+      return api.post("/api/thermal/drill/stop", {});
     },
 
     saveLogConfig(config) {

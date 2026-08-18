@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Leaf, Play, Plus, Power, Save, Square, Trash2 } from "lucide-react";
+import { Flame, Leaf, Play, Plus, Power, Save, Square, Trash2 } from "lucide-react";
 import { deviceCatalog } from "./devices/catalog";
 import { agoLabel, durationLabel, parseTime, percent, timeLabel } from "./core/format";
 import "./styles/app.css";
@@ -157,6 +157,13 @@ function App() {
 
       <main className="content">
         {notice && <div className="notice" role="alert">{notice}</div>}
+        {isLighting && data?.status.thermal.drill?.active && (
+          <ThermalDrillPanel
+            drill={data.status.thermal.drill}
+            receivedAt={data.receivedAt}
+            onAbort={() => run(() => adapter.stopThermalDrill(), "Abbrechen")}
+          />
+        )}
         {!adapter && <ComingSoon device={activeDevice} />}
         {isLighting && data && view === "dashboard" && (
           <LiveView data={data} onSetLevels={(ch1, ch2) => run(() => adapter.setLevels(ch1, ch2))} />
@@ -172,7 +179,11 @@ function App() {
           <LogsView data={data} onSaveConfig={(config) => run(() => adapter.saveLogConfig(config))} onClear={() => run(() => adapter.clearLogs())} />
         )}
         {isLighting && data && view === "system" && (
-          <SystemView data={data} onSaveThermal={(config) => run(() => adapter.saveThermal(config))} />
+          <SystemView
+            data={data}
+            onSaveThermal={(config) => run(() => adapter.saveThermal(config))}
+            onDrill={() => run(() => adapter.startThermalDrill(), "Testlauf")}
+          />
         )}
         {isIrrigation && data && view === "dashboard" && (
           <IrrigationLiveView
@@ -258,15 +269,15 @@ function LiveView({ data, onSetLevels }) {
       <div className="stat-row">
         <Stat series="ch1" label="Kanal 1" value={percent(data.status.applied.ch1)} note={`Soll ${percent(data.status.desired.ch1)}`} />
         <Stat series="ch2" label="Kanal 2" value={percent(data.status.applied.ch2)} note={`Soll ${percent(data.status.desired.ch2)}`} />
-        <Stat label="Temperatur" value={thermal.sensorPresent ? `${thermal.temperatureC.toFixed(1)} °C` : "—"} note={thermal.sensorPresent ? "DS18B20" : "kein Sensor"} />
-        <Stat label="Output" value={thermal.overrideActive ? "limitiert" : "frei"} note={thermal.overrideActive ? `Thermal-Limit ${thermal.config.overridePercent}%` : "kein Thermal-Limit aktiv"} />
+        <Stat label="Temperatur" value={thermal.sensorPresent ? `${thermal.temperatureC.toFixed(1)} °C` : "—"} note={thermal.drill?.active ? "simuliert — Testlauf" : thermal.sensorPresent ? "DS18B20" : "kein Sensor"} />
+        <Stat label="Output" value={thermal.overrideActive ? "limitiert" : "frei"} note={thermal.overrideActive ? `Supervisor-Limit ${thermal.config.overridePercent}%` : "Supervisor bereit"} />
       </div>
 
       <section className="panel">
         <div className="panel-header">
           <div>
             <h2 className="panel-title">Kanalsteuerung</h2>
-            <p className="panel-sub">Direkte Ansteuerung, Thermal-Limit wird firmwareseitig angewendet</p>
+            <p className="panel-sub">Direkte Ansteuerung — der Thermal Supervisor begrenzt den Output firmwareseitig</p>
           </div>
           <div className="button-row">
             {[25, 50, 75].map((value) => (
@@ -646,7 +657,7 @@ function LogsChart({ records }) {
   );
 }
 
-function SystemView({ data, onSaveThermal }) {
+function SystemView({ data, onSaveThermal, onDrill }) {
   const [thermal, setThermal] = useState(data.status.thermal.config);
   const wifi = data.status.wifi;
   return (
@@ -654,10 +665,13 @@ function SystemView({ data, onSaveThermal }) {
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h2 className="panel-title">Thermal-Schutz</h2>
-            <p className="panel-sub">Drosselt den Output, wenn die Leuchte zu heiß wird</p>
+            <h2 className="panel-title">Thermal Supervisor</h2>
+            <p className="panel-sub">Drosselt den Output bei Übertemperatur — der Testlauf simuliert die komplette Eskalationskette</p>
           </div>
-          <button className="primary" onClick={() => onSaveThermal(thermal)}><Save size={14} /> Speichern</button>
+          <div className="button-row">
+            <button onClick={onDrill} disabled={data.status.thermal.drill?.active} title="Simulierte Übertemperatur, spielt alle Stufen durch (Mock)"><Flame size={14} /> Testlauf</button>
+            <button className="primary" onClick={() => onSaveThermal(thermal)}><Save size={14} /> Speichern</button>
+          </div>
         </div>
         <div className="panel-body form-grid">
           <label>Auslösen ab (°C)<input type="number" value={thermal.triggerC} onChange={(e) => setThermal({ ...thermal, triggerC: Number(e.target.value) })} /></label>
@@ -681,6 +695,51 @@ function SystemView({ data, onSaveThermal }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/* ---------- thermal supervisor drill ---------- */
+
+const drillStages = [
+  { label: "Licht dimmen", detail: "Beide Kanäle auf das Supervisor-Limit" },
+  { label: "Lüfter auf 100 %", detail: "Klima-Controller — geplant, hier simuliert" },
+  { label: "Nährlösung ablassen", detail: "Über das Notablassventil, damit die Wurzeln nicht überdüngt werden" },
+  { label: "Wurzelkühlung", detail: "Frischwasser über die Bewässerung spülen" },
+  { label: "Entwarnung", detail: "Temperatur sinkt, Ausgänge normalisieren sich" },
+];
+
+function ThermalDrillPanel({ drill, receivedAt, onAbort }) {
+  const now = useNow(1000, true);
+  const progress = Math.min(1, (drill.elapsed + (now - receivedAt) / 1000) / drill.totalSeconds);
+  return (
+    <section className="panel drill">
+      <div className="panel-header">
+        <div>
+          <h2 className="panel-title"><Flame size={14} /> Thermal Supervisor — Testlauf</h2>
+          <p className="panel-sub">
+            {drill.stageIndex < 0 ? "Übertemperatur erkannt, Eskalation startet" : "Simulation läuft"} · {drill.temperatureC.toFixed(1)} °C
+          </p>
+        </div>
+        <button className="danger" onClick={onAbort}>Abbrechen</button>
+      </div>
+      <div className="panel-body">
+        <div className="drill-progress"><span style={{ width: `${progress * 100}%` }} /></div>
+        <div className="drill-stages">
+          {drillStages.map((stage, index) => {
+            const state = index < drill.stageIndex ? "done" : index === drill.stageIndex ? "active" : "pending";
+            return (
+              <div className={`drill-stage ${state}`} key={stage.label}>
+                <span className="drill-dot" />
+                <div>
+                  <strong>{stage.label}</strong>
+                  <p className="muted">{stage.detail}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -883,7 +942,9 @@ function IrrigationHistoryView({ data }) {
             <span className="muted">{agoLabel(event.at)}</span>
             <strong>{zoneName(zones, event.zone)}</strong>
             <span>{durationLabel(event.durationSeconds)}</span>
-            <span className="badge">{event.trigger === "manual" ? "manuell" : "Zeitplan"}</span>
+            <span className={`badge ${event.trigger === "thermal" ? "alert" : ""}`}>
+              {event.trigger === "manual" ? "manuell" : event.trigger === "thermal" ? "Notkühlung" : "Zeitplan"}
+            </span>
           </div>
         ))}
         {data.history.length === 0 && <p className="muted">Noch keine Bewässerungen aufgezeichnet.</p>}
