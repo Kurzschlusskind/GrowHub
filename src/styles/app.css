@@ -98,6 +98,20 @@ button.ghost {
   background: transparent;
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.notice {
+  border: 1px solid #55333a;
+  border-radius: var(--radius);
+  background: rgba(242, 73, 92, 0.08);
+  color: var(--bad);
+  padding: 8px 12px;
+}
+
 input,
 select {
   min-width: 0;
@@ -633,6 +647,35 @@ select:focus {
   color: var(--muted);
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.preset-block {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.editor-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.preset-row {
+  display: grid;
+  grid-template-columns: 1fr 30px;
+  gap: 6px;
+}
+
+.preset-row button:first-child {
+  justify-content: flex-start;
+}
+
+.preset-save {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 /* ---------- forms & info ---------- */

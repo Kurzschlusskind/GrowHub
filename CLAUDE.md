@@ -14,7 +14,7 @@ Multi-Device-Kontroll-App für lokale ESP-Controller (Licht, Bewässerung, Klima
 
 - `src/main.jsx` — gesamte UI (eine Datei, ~400 Zeilen, bewusst kompakt)
 - `src/core/` — api.js (HTTP-Clients), mock.js (Mock-Daten), format.js
-- `src/devices/` — catalog.js (Geräte-Registry) + Adapter pro Gerätetyp (lighting, irrigation)
+- `src/devices/` — catalog.js (Geräte-Registry) + Adapter pro Gerätetyp (bisher nur lighting; irrigation/climate sind im Katalog als geplant markiert)
 - `src/styles/app.css` — komplettes Design-System
 - `.github/workflows/deploy.yml` — baut bei jedem Push auf main und deployt auf GitHub Pages
 
