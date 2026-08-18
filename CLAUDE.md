@@ -1,7 +1,5 @@
 # GrowHub
 
-Aktueller Fahrplan: siehe PLAN.md (lokale Notiz, per .git/info/exclude vom Repo ausgeschlossen — nicht pushen).
-
 Multi-Device-Kontroll-App für lokale ESP-Controller (Licht, Bewässerung, Klima) als React/Vite-SPA. Ohne Query-Parameter läuft alles auf Mock-Daten.
 
 ## Kommandos
