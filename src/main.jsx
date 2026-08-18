@@ -126,8 +126,8 @@ function App() {
           <span className="crumb">Blütezelt</span>
         </div>
         <div className="conn" title={error || undefined}>
-          <span className={`conn-dot ${error ? "bad" : "ok"}`} />
-          <span>{error ? "Verbindung gestört" : wifi?.connected ? `${wifi.ssid} · ${wifi.ip}` : "Mock-Daten"}</span>
+          <span className={`conn-dot ${error ? "bad" : adapter ? "ok" : "off"}`} />
+          <span>{error ? "Verbindung gestört" : !adapter ? "geplant — kein Controller" : wifi?.connected ? `${wifi.ssid} · ${wifi.ip}` : "Mock-Daten"}</span>
         </div>
       </header>
 
@@ -875,6 +875,23 @@ function IrrigationScheduleView({ data, onSave }) {
     });
   }
 
+  // Marks windows that request the pump while an earlier window still holds
+  // it — those start delayed, exactly like the runtime queue behaves.
+  const delayedWindows = (() => {
+    const enabled = schedules.windows
+      .map((window, index) => ({ ...window, index }))
+      .filter((window) => window.enabled)
+      .sort((a, b) => a.time - b.time || a.index - b.index);
+    const delayed = new Set();
+    let pumpFreeAtSeconds = -1;
+    for (const window of enabled) {
+      const startSeconds = window.time * 60;
+      if (startSeconds < pumpFreeAtSeconds) delayed.add(window.index);
+      pumpFreeAtSeconds = Math.max(startSeconds, pumpFreeAtSeconds) + window.durationSeconds;
+    }
+    return delayed;
+  })();
+
   return (
     <section className="panel">
       <div className="panel-header">
@@ -890,7 +907,7 @@ function IrrigationScheduleView({ data, onSave }) {
       </div>
       <div className="panel-body window-table">
         {schedules.windows.map((window, index) => (
-          <div className={`window-row ${window.enabled ? "" : "disabled"}`} key={index}>
+          <div className={`window-row ${window.enabled ? "" : "disabled"} ${delayedWindows.has(index) ? "delayed" : ""}`} key={index}>
             <label className="switch" title={window.enabled ? "Fenster aktiv" : "Fenster deaktiviert"}>
               <input type="checkbox" checked={window.enabled} onChange={(e) => updateWindow(index, { enabled: e.target.checked })} />
             </label>
@@ -918,6 +935,9 @@ function IrrigationScheduleView({ data, onSave }) {
             >
               ×
             </button>
+            {delayedWindows.has(index) && (
+              <p className="window-hint">Überschneidung — startet verzögert, sobald die Pumpe frei ist</p>
+            )}
           </div>
         ))}
         {schedules.windows.length === 0 && <p className="muted">Keine Zeitfenster — über „Fenster" eines anlegen.</p>}

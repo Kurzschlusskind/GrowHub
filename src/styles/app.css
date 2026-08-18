@@ -244,6 +244,10 @@ select:focus {
   background: var(--bad);
 }
 
+.conn-dot.off {
+  background: var(--border-strong);
+}
+
 .toolbar {
   display: flex;
   justify-content: space-between;
@@ -864,6 +868,14 @@ select:focus {
 
 .window-duration input {
   width: 70px;
+}
+
+.window-hint {
+  grid-column: 1 / -1;
+  color: #e8a35c;
+  font-size: 12px;
+  margin-top: -2px;
+  padding-left: 32px;
 }
 
 .history {

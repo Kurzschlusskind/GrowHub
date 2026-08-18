@@ -128,45 +128,98 @@ function hoursAgo(hours) {
   return Date.now() - hours * 3600000;
 }
 
-export const mockIrrigationData = {
-  status: {
-    firmware: "mock",
-    wifi: { connected: true, ssid: "MockNet", ip: "192.168.178.37", rssi: -61 },
-    pump: { running: false, zone: null, startedAt: 0, durationSeconds: 0, trigger: "manual" },
-    zones: [
-      { id: "z1", name: "Zone 1 · Tropf", state: "ready", lastRunAt: hoursAgo(6.5), lastDurationSeconds: 90 },
-      { id: "z2", name: "Zone 2 · Tropf", state: "ready", lastRunAt: hoursAgo(6.4), lastDurationSeconds: 90 },
-      { id: "z3", name: "Zone 3 · Sprüher", state: "ready", lastRunAt: hoursAgo(30), lastDurationSeconds: 45 },
-    ],
-  },
-  schedules: {
-    enabled: true,
-    windows: [
-      { zone: "z1", time: 390, durationSeconds: 90, enabled: true },
-      { zone: "z2", time: 395, durationSeconds: 90, enabled: true },
-      { zone: "z3", time: 1140, durationSeconds: 45, enabled: false },
-    ],
-  },
-  safety: { maxRunSeconds: 300, lockoutMinutes: 10 },
-  history: seedIrrigationHistory(),
-};
+// Timestamp of a schedule window's occurrence `daysBack` days ago.
+function occurrenceOnDay(timeMinutes, daysBack) {
+  const day = new Date();
+  day.setHours(0, 0, 0, 0);
+  return day.getTime() - daysBack * 86400000 + timeMinutes * 60000;
+}
 
-function seedIrrigationHistory() {
+const irrigationWindows = [
+  { zone: "z1", time: 390, durationSeconds: 90, enabled: true },
+  { zone: "z2", time: 395, durationSeconds: 90, enabled: true },
+  { zone: "z3", time: 1140, durationSeconds: 45, enabled: false },
+];
+
+// The seeded history is derived from the configured schedule windows — the
+// mock behaves like firmware that has been running this schedule for a week.
+function seedIrrigationHistory(windows) {
   const events = [];
-  for (let day = 0; day < 8; day++) {
-    events.push({ at: hoursAgo(6.5 + day * 24), zone: "z1", durationSeconds: 90, trigger: "schedule" });
-    events.push({ at: hoursAgo(6.4 + day * 24), zone: "z2", durationSeconds: 90, trigger: "schedule" });
+  for (let day = 0; day < 7; day++) {
+    for (const window of windows) {
+      if (!window.enabled) continue;
+      const startedAt = occurrenceOnDay(window.time, day);
+      if (startedAt + window.durationSeconds * 1000 < Date.now()) {
+        events.push({ at: startedAt + window.durationSeconds * 1000, zone: window.zone, durationSeconds: window.durationSeconds, trigger: "schedule" });
+      }
+    }
   }
   events.push({ at: hoursAgo(30), zone: "z3", durationSeconds: 45, trigger: "manual" });
   events.push({ at: hoursAgo(54), zone: "z3", durationSeconds: 60, trigger: "manual" });
   return events.sort((a, b) => b.at - a.at).slice(0, 20);
 }
 
+const irrigationHistory = seedIrrigationHistory(irrigationWindows);
+
+function lastEventFor(zoneId) {
+  return irrigationHistory.find((event) => event.zone === zoneId);
+}
+
+export const mockIrrigationData = {
+  status: {
+    firmware: "mock",
+    wifi: { connected: true, ssid: "MockNet", ip: "192.168.178.37", rssi: -61 },
+    pump: { running: false, zone: null, startedAt: 0, durationSeconds: 0, trigger: "manual" },
+    zones: [
+      { id: "z1", name: "Zone 1 · Tropf", state: "ready", lastRunAt: lastEventFor("z1")?.at || 0, lastDurationSeconds: lastEventFor("z1")?.durationSeconds || 0 },
+      { id: "z2", name: "Zone 2 · Tropf", state: "ready", lastRunAt: lastEventFor("z2")?.at || 0, lastDurationSeconds: lastEventFor("z2")?.durationSeconds || 0 },
+      { id: "z3", name: "Zone 3 · Sprüher", state: "ready", lastRunAt: lastEventFor("z3")?.at || 0, lastDurationSeconds: lastEventFor("z3")?.durationSeconds || 0 },
+    ],
+  },
+  schedules: {
+    enabled: true,
+    windows: irrigationWindows,
+  },
+  safety: { maxRunSeconds: 300, lockoutMinutes: 10 },
+  history: irrigationHistory,
+};
+
 // Mock endpoint handler for the irrigation API. Mirrors what the ESP firmware
 // will do, including the safety rules: single shared pump, per-run duration
 // cap, lockout between runs of the same zone.
+// Live schedule execution: windows fire at their start time, a single shared
+// pump processes collisions sequentially, zones inside their lockout are
+// skipped — the same rules the firmware will enforce.
+const scheduler = { lastCheck: Date.now(), queue: [] };
+
+function advanceSchedule() {
+  const data = mockIrrigationData;
+  const now = Date.now();
+  if (data.schedules.enabled) {
+    for (const window of data.schedules.windows) {
+      if (!window.enabled) continue;
+      let occurrence = occurrenceOnDay(window.time, 0);
+      if (occurrence > now) occurrence -= 86400000;
+      if (occurrence > scheduler.lastCheck && occurrence <= now) {
+        scheduler.queue.push({ zone: window.zone, durationSeconds: window.durationSeconds });
+      }
+    }
+  }
+  scheduler.lastCheck = now;
+
+  const pump = data.status.pump;
+  while (!pump.running && scheduler.queue.length) {
+    const next = scheduler.queue.shift();
+    const zone = data.status.zones.find((entry) => entry.id === next.zone);
+    if (!zone) continue;
+    if (zone.lastRunAt && now - zone.lastRunAt < data.safety.lockoutMinutes * 60000) continue; // lockout: skip
+    beginPumpRun(next.zone, next.durationSeconds, "schedule");
+  }
+}
+
 export function mockIrrigationRequest(path, init = {}) {
   advancePump();
+  advanceSchedule();
   const data = mockIrrigationData;
 
   if (path === "/api/irrigation/status") {
@@ -240,11 +293,16 @@ function startPumpRun(zoneId, durationSeconds) {
     const waitMinutes = Math.ceil((lockoutMs - sinceLastRun) / 60000);
     throw new Error(`Sperrzeit aktiv — ${zone.name} ist in ${waitMinutes} min wieder freigegeben`);
   }
+  beginPumpRun(zoneId, durationSeconds, "manual");
+}
+
+function beginPumpRun(zoneId, durationSeconds, trigger) {
+  const pump = mockIrrigationData.status.pump;
   pump.running = true;
   pump.zone = zoneId;
   pump.startedAt = Date.now();
-  pump.durationSeconds = Math.min(Math.max(1, Math.round(durationSeconds)), data.safety.maxRunSeconds);
-  pump.trigger = "manual";
+  pump.durationSeconds = Math.min(Math.max(1, Math.round(durationSeconds)), mockIrrigationData.safety.maxRunSeconds);
+  pump.trigger = trigger;
 }
 
 function stopPumpRun() {
