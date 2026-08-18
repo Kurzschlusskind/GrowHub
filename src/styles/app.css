@@ -974,6 +974,16 @@ select:focus {
   font-size: 12px;
 }
 
+.form-grid label.switch {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  align-self: end;
+  min-height: 30px;
+  font-size: 13px;
+}
+
 .system-grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
