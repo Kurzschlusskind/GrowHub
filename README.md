@@ -14,6 +14,8 @@ Without a connected controller, GrowHub runs on mock data — every panel is ful
 
 ## Development
 
+Requires Node.js >= 20.19.
+
 ```powershell
 npm install
 npm run dev
@@ -25,13 +27,14 @@ Open:
 http://localhost:5173/
 ```
 
-Use a real lighting controller:
+Use a real controller by passing its endpoint as a query parameter:
 
 ```text
 http://localhost:5173/?lighting=http://192.168.178.36
+http://localhost:5173/?irrigation=http://192.168.178.37
 ```
 
-Without a query parameter, GrowHub uses mock data.
+Without a query parameter, GrowHub uses mock data. The irrigation controller currently always runs on mock data — the hardware integration is still in progress and marked as such in the UI.
 
 ## Structure
 

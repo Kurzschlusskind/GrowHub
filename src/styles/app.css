@@ -678,6 +678,130 @@ select:focus {
   margin-top: 2px;
 }
 
+/* ---------- irrigation ---------- */
+
+.zone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.zone {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.zone.running {
+  border-color: var(--accent);
+}
+
+.zone-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zone-head strong {
+  color: var(--text-strong);
+}
+
+.zone-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.zone-dot.ok {
+  background: var(--muted);
+}
+
+.zone-dot.run {
+  background: var(--ok);
+}
+
+.zone-dot.bad {
+  background: var(--bad);
+}
+
+.zone-last {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.zone-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.zone-actions select {
+  flex: 1;
+}
+
+.countdown {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.window-table {
+  display: grid;
+  gap: 8px;
+}
+
+.window-row {
+  display: grid;
+  grid-template-columns: 24px minmax(140px, 1fr) auto minmax(90px, auto) 30px;
+  gap: 8px;
+  align-items: center;
+}
+
+.window-row.disabled select,
+.window-row.disabled input[type="time"],
+.window-row.disabled .window-duration {
+  opacity: 0.45;
+}
+
+.window-duration {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.window-duration input {
+  width: 70px;
+}
+
+.history {
+  display: grid;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-row:last-child {
+  border-bottom: 0;
+}
+
+.history-row strong {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
 /* ---------- forms & info ---------- */
 
 .form-grid {
@@ -754,5 +878,19 @@ select:focus {
 
   .schedule-chart {
     height: clamp(260px, 38vh, 360px);
+  }
+
+  .window-row {
+    grid-template-columns: 20px minmax(0, 1fr) auto auto 26px;
+    gap: 5px;
+  }
+
+  .window-duration input {
+    width: 52px;
+  }
+
+  .history-row {
+    grid-template-columns: 76px 1fr auto auto;
+    gap: 8px;
   }
 }

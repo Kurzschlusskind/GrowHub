@@ -1,17 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Leaf, Plus, Power, Save, Trash2 } from "lucide-react";
+import { Leaf, Play, Plus, Power, Save, Square, Trash2 } from "lucide-react";
 import { deviceCatalog } from "./devices/catalog";
-import { parseTime, percent, timeLabel } from "./core/format";
+import { agoLabel, durationLabel, parseTime, percent, timeLabel } from "./core/format";
 import "./styles/app.css";
 
 const params = new URLSearchParams(location.search);
-const endpoint = params.get("lighting") || "";
 const initialView = ["dashboard", "schedule", "logs", "system"].includes(params.get("view")) ? params.get("view") : "dashboard";
 
 const devices = [
-  { id: "lighting-main", type: "lighting-rs485", endpoint },
-  { id: "irrigation-next", type: "irrigation" },
+  { id: "lighting-main", type: "lighting-rs485", endpoint: params.get("lighting") || "" },
+  { id: "irrigation-next", type: "irrigation", endpoint: params.get("irrigation") || "" },
   { id: "climate-next", type: "climate" },
 ].map((device) => ({ ...device, ...deviceCatalog[device.type] }));
 
@@ -48,31 +47,45 @@ function useElementSize() {
 function App() {
   const [view, setView] = useState(initialView);
   const [activeDeviceId, setActiveDeviceId] = useState("lighting-main");
-  const [lighting, setLighting] = useState(null);
+  const [deviceData, setDeviceData] = useState({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef(null);
-  const adapter = useMemo(() => deviceCatalog["lighting-rs485"].createAdapter(endpoint), []);
+  const adapters = useMemo(() => {
+    const map = {};
+    for (const device of devices) {
+      const create = deviceCatalog[device.type].createAdapter;
+      if (create) map[device.id] = create(device.endpoint || "");
+    }
+    return map;
+  }, []);
+
+  const activeDevice = devices.find((device) => device.id === activeDeviceId) || devices[0];
+  const adapter = adapters[activeDeviceId];
+  const data = deviceData[activeDeviceId];
 
   async function refresh() {
+    if (!adapter) return;
     try {
-      setLighting(await adapter.load());
+      const next = await adapter.load();
+      setDeviceData((prev) => ({ ...prev, [activeDeviceId]: next }));
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "API-Fehler");
     }
   }
 
-  // Wraps a save action: refreshes on success, surfaces failure as a banner.
-  // Resolves to true/false so callers can keep local dirty state on failure.
-  function run(action) {
+  // Wraps an action against the active adapter: refreshes on success,
+  // surfaces failure as a banner. Resolves to true/false so callers can
+  // keep local dirty state on failure.
+  function run(action, label = "Speichern") {
     return action()
       .then(() => {
         refresh();
         return true;
       })
       .catch((err) => {
-        setNotice(`Speichern fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
+        setNotice(`${label} fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
         window.clearTimeout(noticeTimer.current);
         noticeTimer.current = window.setTimeout(() => setNotice(""), 6000);
         return false;
@@ -80,14 +93,29 @@ function App() {
   }
 
   useEffect(() => {
-    refresh();
-    const timer = window.setInterval(refresh, 4000);
-    return () => window.clearInterval(timer);
-  }, []);
+    if (!adapter) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const next = await adapter.load();
+        if (cancelled) return;
+        setDeviceData((prev) => ({ ...prev, [activeDeviceId]: next }));
+        setError("");
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "API-Fehler");
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeDeviceId]);
 
-  const activeDevice = devices.find((device) => device.id === activeDeviceId) || devices[0];
   const isLighting = activeDevice.type === "lighting-rs485";
-  const wifi = lighting?.status.wifi;
+  const isIrrigation = activeDevice.type === "irrigation";
+  const wifi = data?.status.wifi;
 
   return (
     <div className="app">
@@ -116,7 +144,7 @@ function App() {
             </button>
           ))}
         </div>
-        {isLighting && (
+        {adapter && (
           <nav className="view-tabs">
             {views.map((entry) => (
               <button key={entry.id} className={view === entry.id ? "active" : ""} onClick={() => setView(entry.id)}>
@@ -129,22 +157,36 @@ function App() {
 
       <main className="content">
         {notice && <div className="notice" role="alert">{notice}</div>}
-        {!isLighting && <ComingSoon device={activeDevice} />}
-        {isLighting && lighting && view === "dashboard" && (
-          <LiveView data={lighting} onSetLevels={(ch1, ch2) => run(() => adapter.setLevels(ch1, ch2))} />
+        {!adapter && <ComingSoon device={activeDevice} />}
+        {isLighting && data && view === "dashboard" && (
+          <LiveView data={data} onSetLevels={(ch1, ch2) => run(() => adapter.setLevels(ch1, ch2))} />
         )}
-        {isLighting && lighting && view === "schedule" && (
+        {isLighting && data && view === "schedule" && (
           <ScheduleView
-            data={lighting}
+            data={data}
             onSave={(schedule) => run(() => adapter.saveSchedule(schedule))}
             onSavePresets={(presets) => run(() => adapter.savePresets(presets))}
           />
         )}
-        {isLighting && lighting && view === "logs" && (
-          <LogsView data={lighting} onSaveConfig={(config) => run(() => adapter.saveLogConfig(config))} onClear={() => run(() => adapter.clearLogs())} />
+        {isLighting && data && view === "logs" && (
+          <LogsView data={data} onSaveConfig={(config) => run(() => adapter.saveLogConfig(config))} onClear={() => run(() => adapter.clearLogs())} />
         )}
-        {isLighting && lighting && view === "system" && (
-          <SystemView data={lighting} onSaveThermal={(config) => run(() => adapter.saveThermal(config))} />
+        {isLighting && data && view === "system" && (
+          <SystemView data={data} onSaveThermal={(config) => run(() => adapter.saveThermal(config))} />
+        )}
+        {isIrrigation && data && view === "dashboard" && (
+          <IrrigationLiveView
+            data={data}
+            onRun={(zone, durationSeconds) => run(() => adapter.run(zone, durationSeconds), "Start")}
+            onStop={() => run(() => adapter.stop(), "Stopp")}
+          />
+        )}
+        {isIrrigation && data && view === "schedule" && (
+          <IrrigationScheduleView data={data} onSave={(schedules) => run(() => adapter.saveSchedules(schedules))} />
+        )}
+        {isIrrigation && data && view === "logs" && <IrrigationHistoryView data={data} />}
+        {isIrrigation && data && view === "system" && (
+          <IrrigationSystemView data={data} onSaveSafety={(safety) => run(() => adapter.saveSafety(safety))} />
         )}
       </main>
     </div>
@@ -635,6 +677,250 @@ function SystemView({ data, onSaveThermal }) {
             <div><dt>IP-Adresse</dt><dd>{wifi.ip}</dd></div>
             <div><dt>Signal</dt><dd>{wifi.rssi} dBm</dd></div>
             <div><dt>Temperatursensor</dt><dd>{data.status.thermal.sensorPresent ? "erkannt" : "nicht angeschlossen"}</dd></div>
+          </dl>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ---------- irrigation ---------- */
+
+// Re-renders every intervalMs while active — drives the local countdown
+// between polls.
+function useNow(intervalMs, active) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs, active]);
+  return now;
+}
+
+function zoneName(zones, id) {
+  return zones.find((zone) => zone.id === id)?.name || id;
+}
+
+function IrrigationLiveView({ data, onRun, onStop }) {
+  const pump = data.status.pump;
+  const zones = data.status.zones;
+  const now = useNow(1000, pump.running);
+  const remaining = pump.running
+    ? Math.max(0, Math.round(pump.remainingSeconds - (now - data.receivedAt) / 1000))
+    : 0;
+  const lastRunAt = zones.reduce((latest, zone) => Math.max(latest, zone.lastRunAt || 0), 0);
+
+  return (
+    <>
+      <div className="stat-row">
+        <Stat label="Pumpe" value={pump.running ? "läuft" : "bereit"} note={pump.running ? zoneName(zones, pump.zone) : "keine Zone aktiv"} />
+        <Stat label="Restzeit" value={pump.running ? `${remaining} s` : "—"} note={pump.running ? `von ${durationLabel(pump.durationSeconds)}` : "kein Lauf aktiv"} />
+        <Stat label="Zonen" value={String(zones.length)} note="1 Pumpe, gemeinsam genutzt" />
+        <Stat label="Letzte Bewässerung" value={lastRunAt ? agoLabel(lastRunAt) : "—"} note={lastRunAt ? zoneName(zones, zones.find((zone) => zone.lastRunAt === lastRunAt)?.id) : ""} />
+      </div>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Zonen</h2>
+            <p className="panel-sub">Manueller Start — nur eine Zone gleichzeitig, Dauer wird durch die maximale Pumpenlaufzeit begrenzt</p>
+          </div>
+          <span className="badge">Mock — Hardware-Anbindung folgt</span>
+        </div>
+        <div className="panel-body zone-grid">
+          {zones.map((zone) => (
+            <ZoneCard
+              key={zone.id}
+              zone={zone}
+              pump={pump}
+              remaining={remaining}
+              maxRunSeconds={data.safety.maxRunSeconds}
+              onRun={onRun}
+              onStop={onStop}
+            />
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ZoneCard({ zone, pump, remaining, maxRunSeconds, onRun, onStop }) {
+  const [duration, setDuration] = useState(60);
+  const isActive = pump.running && pump.zone === zone.id;
+  const durations = [30, 60, 90, 120, 180, 300].filter((value) => value <= maxRunSeconds);
+
+  return (
+    <div className={`zone ${isActive ? "running" : ""}`}>
+      <div className="zone-head">
+        <span className={`zone-dot ${isActive ? "run" : zone.state === "error" ? "bad" : "ok"}`} />
+        <strong>{zone.name}</strong>
+      </div>
+      <p className="zone-last">
+        {zone.lastRunAt ? `zuletzt ${agoLabel(zone.lastRunAt)} · ${durationLabel(zone.lastDurationSeconds)}` : "noch nie bewässert"}
+      </p>
+      {isActive ? (
+        <div className="zone-actions">
+          <strong className="countdown">{remaining} s</strong>
+          <button className="danger" onClick={onStop}><Square size={14} /> Stopp</button>
+        </div>
+      ) : (
+        <div className="zone-actions">
+          <select value={duration} onChange={(e) => setDuration(Number(e.target.value))} aria-label={`Dauer ${zone.name}`}>
+            {durations.map((value) => (
+              <option key={value} value={value}>{durationLabel(value)}</option>
+            ))}
+          </select>
+          <button className="primary" disabled={pump.running} onClick={() => onRun(zone.id, duration)}>
+            <Play size={14} /> Start
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IrrigationScheduleView({ data, onSave }) {
+  const [schedules, setSchedules] = useState(data.schedules);
+  const [dirty, setDirty] = useState(false);
+  const zones = data.status.zones;
+
+  useEffect(() => {
+    if (!dirty) setSchedules(data.schedules);
+  }, [data.schedules, dirty]);
+
+  function commit(next) {
+    setSchedules(next);
+    setDirty(true);
+  }
+
+  function updateWindow(index, patch) {
+    const windows = [...schedules.windows];
+    windows[index] = { ...windows[index], ...patch };
+    commit({ ...schedules, windows });
+  }
+
+  function addWindow() {
+    commit({
+      ...schedules,
+      windows: [...schedules.windows, { zone: zones[0].id, time: 360, durationSeconds: 60, enabled: true }],
+    });
+  }
+
+  function save() {
+    const sorted = { ...schedules, windows: [...schedules.windows].sort((a, b) => a.time - b.time) };
+    onSave(sorted).then((ok) => {
+      if (ok) setDirty(false);
+    });
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2 className="panel-title">Zeitfenster</h2>
+          <p className="panel-sub">{schedules.enabled ? "aktiv" : "inaktiv"} · {schedules.windows.length} Fenster · Startzeiten werden nacheinander abgearbeitet (eine Pumpe)</p>
+        </div>
+        <div className="button-row">
+          <label className="switch"><input type="checkbox" checked={schedules.enabled} onChange={(e) => commit({ ...schedules, enabled: e.target.checked })} /> aktiv</label>
+          <button onClick={addWindow}><Plus size={14} /> Fenster</button>
+          <button className="primary" onClick={save}><Save size={14} /> Speichern</button>
+        </div>
+      </div>
+      <div className="panel-body window-table">
+        {schedules.windows.map((window, index) => (
+          <div className={`window-row ${window.enabled ? "" : "disabled"}`} key={index}>
+            <label className="switch" title={window.enabled ? "Fenster aktiv" : "Fenster deaktiviert"}>
+              <input type="checkbox" checked={window.enabled} onChange={(e) => updateWindow(index, { enabled: e.target.checked })} />
+            </label>
+            <select value={window.zone} onChange={(e) => updateWindow(index, { zone: e.target.value })} aria-label="Zone">
+              {zones.map((zone) => (
+                <option key={zone.id} value={zone.id}>{zone.name}</option>
+              ))}
+            </select>
+            <input type="time" value={timeLabel(window.time)} onChange={(e) => { const time = parseTime(e.target.value); if (time !== null) updateWindow(index, { time }); }} />
+            <div className="window-duration">
+              <input
+                type="number"
+                min={5}
+                max={data.safety.maxRunSeconds}
+                value={window.durationSeconds}
+                aria-label="Dauer in Sekunden"
+                onChange={(e) => updateWindow(index, { durationSeconds: Math.max(5, Math.min(data.safety.maxRunSeconds, Number(e.target.value) || 5)) })}
+              />
+              <span className="muted">s</span>
+            </div>
+            <button
+              className="danger ghost"
+              aria-label="Fenster löschen"
+              onClick={() => commit({ ...schedules, windows: schedules.windows.filter((_, i) => i !== index) })}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        {schedules.windows.length === 0 && <p className="muted">Keine Zeitfenster — über „Fenster" eines anlegen.</p>}
+      </div>
+    </section>
+  );
+}
+
+function IrrigationHistoryView({ data }) {
+  const zones = data.status.zones;
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2 className="panel-title">Verlauf</h2>
+          <p className="panel-sub">Letzte {data.history.length} Bewässerungen</p>
+        </div>
+      </div>
+      <div className="panel-body history">
+        {data.history.map((event, index) => (
+          <div className="history-row" key={index}>
+            <span className="muted">{agoLabel(event.at)}</span>
+            <strong>{zoneName(zones, event.zone)}</strong>
+            <span>{durationLabel(event.durationSeconds)}</span>
+            <span className="badge">{event.trigger === "manual" ? "manuell" : "Zeitplan"}</span>
+          </div>
+        ))}
+        {data.history.length === 0 && <p className="muted">Noch keine Bewässerungen aufgezeichnet.</p>}
+      </div>
+    </section>
+  );
+}
+
+function IrrigationSystemView({ data, onSaveSafety }) {
+  const [safety, setSafety] = useState(data.safety);
+  const wifi = data.status.wifi;
+  return (
+    <div className="system-grid">
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Pumpenschutz</h2>
+            <p className="panel-sub">Begrenzt Laufzeit pro Vorgang und erzwingt Pausen zwischen Läufen derselben Zone</p>
+          </div>
+          <button className="primary" onClick={() => onSaveSafety(safety)}><Save size={14} /> Speichern</button>
+        </div>
+        <div className="panel-body form-grid">
+          <label>Max. Laufzeit (s)<input type="number" min={10} value={safety.maxRunSeconds} onChange={(e) => setSafety({ ...safety, maxRunSeconds: Number(e.target.value) })} /></label>
+          <label>Sperrzeit (min)<input type="number" min={0} value={safety.lockoutMinutes} onChange={(e) => setSafety({ ...safety, lockoutMinutes: Number(e.target.value) })} /></label>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-header">
+          <h2 className="panel-title">Gerät</h2>
+        </div>
+        <div className="panel-body">
+          <dl className="info-list">
+            <div><dt>Firmware</dt><dd>{data.status.firmware}</dd></div>
+            <div><dt>Netzwerk</dt><dd>{wifi.connected ? wifi.ssid : "nicht verbunden"}</dd></div>
+            <div><dt>IP-Adresse</dt><dd>{wifi.ip}</dd></div>
+            <div><dt>Signal</dt><dd>{wifi.rssi} dBm</dd></div>
+            <div><dt>Anbindung</dt><dd>Mock — Hardware folgt</dd></div>
           </dl>
         </div>
       </section>

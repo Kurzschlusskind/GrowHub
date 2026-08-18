@@ -1,4 +1,4 @@
-import { mockLightingData } from "./mock";
+import { mockIrrigationRequest, mockLightingData } from "./mock";
 
 export function createApiClient(baseUrl) {
   const base = (baseUrl || "").replace(/\/$/, "");
@@ -23,6 +23,7 @@ export function createApiClient(baseUrl) {
 }
 
 function mockRequest(path, init = {}) {
+  if (path.startsWith("/api/irrigation/")) return mockIrrigationRequest(path, init);
   if (path === "/api/status") return structuredClone(mockLightingData.status);
   if (path === "/api/schedules") {
     if (init.method === "POST" && init.body) {
