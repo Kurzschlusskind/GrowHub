@@ -710,6 +710,13 @@ select:focus {
   transition: width 1s linear;
 }
 
+.drill-next {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .drill-stages {
   display: grid;
   gap: 12px;

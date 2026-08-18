@@ -8,7 +8,7 @@ export const mockLightingData = {
       sensorPresent: false,
       overrideActive: false,
       temperatureC: 0,
-      config: { enabled: true, triggerC: 30, releaseC: 27, overridePercent: 25, sampleIntervalMs: 5000 },
+      config: { enabled: true, triggerC: 30, releaseC: 27, overridePercent: 25, escalationSeconds: 120, sampleIntervalMs: 5000 },
     },
   },
   schedule: {
@@ -54,11 +54,13 @@ export const mockLightingData = {
 
 /* ---------- thermal supervisor drill ---------- */
 
-// Simulated over-temperature event that plays the whole escalation chain:
-// dim lights -> fan to 100% (climate, planned) -> drain nutrient solution ->
-// flush roots via irrigation -> recover. Stage timing in seconds.
-const DRILL_STAGE_ENDS = [4, 12, 20, 28, 36, 44]; // detect, dim, fan, drain, flush, recover
-const DRILL_TOTAL_SECONDS = 44;
+// Simulated over-temperature event that plays the whole escalation chain.
+// Stage 1 (dim) fires immediately on detection; every further stage only
+// fires after the configured escalation time has passed without the
+// temperature falling — the same dwell logic the firmware will use.
+// Stage layout: dim [0,E) -> fan [E,2E) -> drain [2E,3E) -> flush [3E,4E)
+// -> recovery [4E,4.5E), with E = thermal.config.escalationSeconds.
+const DRILL_FLUSH_SECONDS = 8;
 
 const thermalDrill = { active: false, startedAt: 0, flushLogged: false };
 
@@ -76,30 +78,48 @@ export function mockThermalDrillRequest(path) {
   return {};
 }
 
+function drillEscalationSeconds() {
+  const configured = mockLightingData.status.thermal.config.escalationSeconds;
+  return Math.max(10, Math.min(900, Number.isFinite(configured) ? configured : 120));
+}
+
 function drillState() {
   if (!thermalDrill.active) return null;
+  const escalation = drillEscalationSeconds();
+  const total = escalation * 4.5;
   const elapsed = (Date.now() - thermalDrill.startedAt) / 1000;
-  if (elapsed >= DRILL_TOTAL_SECONDS) {
+  if (elapsed >= total) {
     thermalDrill.active = false;
     return null;
   }
-  // Log the emergency flush into the irrigation history once its stage ends.
-  if (elapsed >= DRILL_STAGE_ENDS[4] && !thermalDrill.flushLogged) {
+  const config = mockLightingData.status.thermal.config;
+  const trigger = config.triggerC;
+  const release = config.releaseC;
+  // Log the emergency flush into the irrigation history once the pump stops.
+  if (elapsed >= escalation * 3 + DRILL_FLUSH_SECONDS && !thermalDrill.flushLogged) {
     thermalDrill.flushLogged = true;
-    mockIrrigationData.history.unshift({ at: Date.now(), zone: "z1", durationSeconds: 8, trigger: "thermal" });
+    mockIrrigationData.history.unshift({ at: Date.now(), zone: "z1", durationSeconds: DRILL_FLUSH_SECONDS, trigger: "thermal" });
     mockIrrigationData.history = mockIrrigationData.history.slice(0, 20);
   }
-  const stageIndex = DRILL_STAGE_ENDS.findIndex((end) => elapsed < end) - 1; // -1 = detect phase
+  const stageIndex = Math.min(4, Math.floor(elapsed / escalation));
+  // Each measure slows the rise but does not stop it (hence the escalation);
+  // the flush finally turns the curve around. Peak = trigger + 8 K.
+  const segment = elapsed / escalation;
   let temperatureC;
-  if (elapsed < 20) temperatureC = 28.4 + (elapsed / 20) * 13.6;
-  else if (elapsed < 32) temperatureC = 42 - ((elapsed - 20) / 12) * 2;
-  else temperatureC = 40 - ((elapsed - 32) / 12) * 12.5;
+  if (segment < 1) temperatureC = trigger + segment * 4;
+  else if (segment < 2) temperatureC = trigger + 4 + (segment - 1) * 2.5;
+  else if (segment < 3) temperatureC = trigger + 6.5 + (segment - 2) * 1.5;
+  else if (segment < 4) temperatureC = trigger + 8 - (segment - 3) * (trigger + 8 - (release + 1));
+  else temperatureC = release + 1 - ((segment - 4) / 0.5) * 1.5;
+  const nextBoundary = stageIndex < 4 ? (stageIndex + 1) * escalation : total;
   return {
     active: true,
     elapsed,
     stageIndex,
     temperatureC: Math.round(temperatureC * 10) / 10,
-    totalSeconds: DRILL_TOTAL_SECONDS,
+    totalSeconds: total,
+    escalationSeconds: escalation,
+    nextStageInSeconds: Math.max(0, Math.round(nextBoundary - elapsed)),
   };
 }
 
@@ -227,8 +247,9 @@ export function mockIrrigationRequest(path, init = {}) {
     // During the supervisor drill's flush stage the pump runs the emergency
     // root-cooling flush (unless a manual run already holds it).
     const drill = drillState();
-    const flush = !pump.running && drill && drill.stageIndex === 3
-      ? { zone: "z1", remainingSeconds: Math.max(0, Math.round(36 - drill.elapsed)) }
+    const flushElapsed = drill ? drill.elapsed - drill.escalationSeconds * 3 : -1;
+    const flush = !pump.running && drill && drill.stageIndex === 3 && flushElapsed < DRILL_FLUSH_SECONDS
+      ? { zone: "z1", remainingSeconds: Math.max(0, Math.round(DRILL_FLUSH_SECONDS - flushElapsed)) }
       : null;
     const remainingSeconds = pump.running
       ? Math.max(0, Math.round(pump.durationSeconds - (Date.now() - pump.startedAt) / 1000))
@@ -242,7 +263,7 @@ export function mockIrrigationRequest(path, init = {}) {
       pump: {
         running: pump.running || !!flush,
         zone: activeZone,
-        durationSeconds: pump.running ? pump.durationSeconds : flush ? 8 : 0,
+        durationSeconds: pump.running ? pump.durationSeconds : flush ? DRILL_FLUSH_SECONDS : 0,
         remainingSeconds,
       },
       zones: data.status.zones.map((zone) => ({

@@ -160,6 +160,7 @@ function App() {
         {isLighting && data?.status.thermal.drill?.active && (
           <ThermalDrillPanel
             drill={data.status.thermal.drill}
+            config={data.status.thermal.config}
             receivedAt={data.receivedAt}
             onAbort={() => run(() => adapter.stopThermalDrill(), "Abbrechen")}
           />
@@ -269,7 +270,7 @@ function LiveView({ data, onSetLevels }) {
       <div className="stat-row">
         <Stat series="ch1" label="Kanal 1" value={percent(data.status.applied.ch1)} note={`Soll ${percent(data.status.desired.ch1)}`} />
         <Stat series="ch2" label="Kanal 2" value={percent(data.status.applied.ch2)} note={`Soll ${percent(data.status.desired.ch2)}`} />
-        <Stat label="Temperatur" value={thermal.sensorPresent ? `${thermal.temperatureC.toFixed(1)} °C` : "—"} note={thermal.drill?.active ? "simuliert — Testlauf" : thermal.sensorPresent ? "DS18B20" : "kein Sensor"} />
+        <Stat label="Temperatur" value={thermal.sensorPresent ? `${thermal.temperatureC.toFixed(1)} °C` : "—"} note={thermal.drill?.active ? "Testlauf aktiv" : thermal.sensorPresent ? "DS18B20" : "kein Sensor"} />
         <Stat label="Output" value={thermal.overrideActive ? "limitiert" : "frei"} note={thermal.overrideActive ? `Supervisor-Limit ${thermal.config.overridePercent}%` : "Supervisor bereit"} />
       </div>
 
@@ -666,7 +667,7 @@ function SystemView({ data, onSaveThermal, onDrill }) {
         <div className="panel-header">
           <div>
             <h2 className="panel-title">Thermal Supervisor</h2>
-            <p className="panel-sub">Drosselt den Output bei Übertemperatur — der Testlauf simuliert die komplette Eskalationskette</p>
+            <p className="panel-sub">Vierstufige Eskalation bei Übertemperatur — Stufe 1 sofort beim Trigger, jede weitere erst nach Ablauf der Eskalationszeit</p>
           </div>
           <div className="button-row">
             <button onClick={onDrill} disabled={data.status.thermal.drill?.active} title="Simulierte Übertemperatur, spielt alle Stufen durch (Mock)"><Flame size={14} /> Testlauf</button>
@@ -677,6 +678,7 @@ function SystemView({ data, onSaveThermal, onDrill }) {
           <label>Auslösen ab (°C)<input type="number" value={thermal.triggerC} onChange={(e) => setThermal({ ...thermal, triggerC: Number(e.target.value) })} /></label>
           <label>Freigabe unter (°C)<input type="number" value={thermal.releaseC} onChange={(e) => setThermal({ ...thermal, releaseC: Number(e.target.value) })} /></label>
           <label>Limit (%)<input type="number" value={thermal.overridePercent} onChange={(e) => setThermal({ ...thermal, overridePercent: Number(e.target.value) })} /></label>
+          <label>Eskalationszeit (s)<input type="number" min={10} max={900} value={thermal.escalationSeconds} onChange={(e) => setThermal({ ...thermal, escalationSeconds: Number(e.target.value) })} /></label>
           <label>Messintervall (ms)<input type="number" value={thermal.sampleIntervalMs} onChange={(e) => setThermal({ ...thermal, sampleIntervalMs: Number(e.target.value) })} /></label>
         </div>
       </section>
@@ -701,29 +703,38 @@ function SystemView({ data, onSaveThermal, onDrill }) {
 /* ---------- thermal supervisor drill ---------- */
 
 const drillStages = [
-  { label: "Licht dimmen", detail: "Beide Kanäle auf das Supervisor-Limit" },
-  { label: "Lüfter auf 100 %", detail: "Klima-Controller — geplant, hier simuliert" },
-  { label: "Nährlösung ablassen", detail: "Über das Notablassventil, damit die Wurzeln nicht überdüngt werden" },
-  { label: "Wurzelkühlung", detail: "Frischwasser über die Bewässerung spülen" },
-  { label: "Entwarnung", detail: "Temperatur sinkt, Ausgänge normalisieren sich" },
+  { label: "PWM-Reduktion", detail: "CH1/CH2 auf Override-Limit — Wärmeeintrag der Leuchte sinkt" },
+  { label: "Abluft 100 %", detail: "Lüfter auf maximalen Duty-Cycle (Klima-Controller)" },
+  { label: "Drainage Nährlösung", detail: "Notablassventil öffnet — verhindert Aufkonzentration und Überdüngung im Wurzelraum" },
+  { label: "Wurzelkühlung", detail: "Frischwasser-Spülung über den Bewässerungskreis" },
+  { label: "Normalbetrieb", detail: "Temperatur unter Release-Schwelle — Limits werden aufgehoben" },
 ];
 
-function ThermalDrillPanel({ drill, receivedAt, onAbort }) {
+function ThermalDrillPanel({ drill, config, receivedAt, onAbort }) {
   const now = useNow(1000, true);
-  const progress = Math.min(1, (drill.elapsed + (now - receivedAt) / 1000) / drill.totalSeconds);
+  const localElapsed = (now - receivedAt) / 1000;
+  const progress = Math.min(1, (drill.elapsed + localElapsed) / drill.totalSeconds);
+  const nextIn = Math.max(0, Math.round(drill.nextStageInSeconds - localElapsed));
   return (
     <section className="panel drill">
       <div className="panel-header">
         <div>
           <h2 className="panel-title"><Flame size={14} /> Thermal Supervisor — Testlauf</h2>
           <p className="panel-sub">
-            {drill.stageIndex < 0 ? "Übertemperatur erkannt, Eskalation startet" : "Simulation läuft"} · {drill.temperatureC.toFixed(1)} °C
+            {drill.temperatureC.toFixed(1)} °C · Trigger {config.triggerC} °C / Release {config.releaseC} °C · Eskalationszeit {drill.escalationSeconds} s
           </p>
         </div>
         <button className="danger" onClick={onAbort}>Abbrechen</button>
       </div>
       <div className="panel-body">
         <div className="drill-progress"><span style={{ width: `${progress * 100}%` }} /></div>
+        <p className="drill-next">
+          {drill.stageIndex < 3
+            ? `Stufe ${drill.stageIndex + 2} in ${nextIn} s, falls die Temperatur weiter steigt`
+            : drill.stageIndex === 3
+              ? `Rückkehr in den Normalbetrieb in ${nextIn} s, sobald die Temperatur fällt`
+              : "Temperatur fällt — Testlauf schließt ab"}
+        </p>
         <div className="drill-stages">
           {drillStages.map((stage, index) => {
             const state = index < drill.stageIndex ? "done" : index === drill.stageIndex ? "active" : "pending";
@@ -731,7 +742,7 @@ function ThermalDrillPanel({ drill, receivedAt, onAbort }) {
               <div className={`drill-stage ${state}`} key={stage.label}>
                 <span className="drill-dot" />
                 <div>
-                  <strong>{stage.label}</strong>
+                  <strong>{index < 4 ? `Stufe ${index + 1} · ` : ""}{stage.label}</strong>
                   <p className="muted">{stage.detail}</p>
                 </div>
               </div>
