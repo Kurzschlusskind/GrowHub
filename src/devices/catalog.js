@@ -1,16 +1,23 @@
+import { Droplets, Fan, Lightbulb } from "lucide-react";
 import { createLightingAdapter } from "./lighting/adapter";
 
+// Device registry: one entry per controller type. A type without a
+// createAdapter is shown in the UI but marked as not yet implemented.
 export const deviceCatalog = {
   "lighting-rs485": {
-    label: "RS485 Licht",
+    label: "Licht",
+    detail: "RS485 · 2 Kanäle",
+    icon: Lightbulb,
     createAdapter: createLightingAdapter,
   },
   irrigation: {
-    label: "Bewaesserung",
-    createAdapter: () => null,
+    label: "Bewässerung",
+    detail: "geplant",
+    icon: Droplets,
   },
   climate: {
     label: "Klima",
-    createAdapter: () => null,
+    detail: "geplant",
+    icon: Fan,
   },
 };

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Droplets, Fan, Leaf, Lightbulb, Plus, Power, Save, Trash2 } from "lucide-react";
-import { createLightingAdapter } from "./devices/lighting/adapter";
+import { Leaf, Plus, Power, Save, Trash2 } from "lucide-react";
+import { deviceCatalog } from "./devices/catalog";
 import { parseTime, percent, timeLabel } from "./core/format";
 import "./styles/app.css";
 
@@ -10,10 +10,10 @@ const endpoint = params.get("lighting") || "";
 const initialView = ["dashboard", "schedule", "logs", "system"].includes(params.get("view")) ? params.get("view") : "dashboard";
 
 const devices = [
-  { id: "lighting-main", name: "Licht", detail: "RS485 · 2 Kanäle", type: "lighting-rs485", icon: Lightbulb, endpoint },
-  { id: "irrigation-next", name: "Bewässerung", detail: "geplant", type: "irrigation", icon: Droplets },
-  { id: "climate-next", name: "Klima", detail: "geplant", type: "climate", icon: Fan },
-];
+  { id: "lighting-main", type: "lighting-rs485", endpoint },
+  { id: "irrigation-next", type: "irrigation" },
+  { id: "climate-next", type: "climate" },
+].map((device) => ({ ...device, ...deviceCatalog[device.type] }));
 
 const views = [
   { id: "dashboard", label: "Übersicht" },
@@ -50,7 +50,9 @@ function App() {
   const [activeDeviceId, setActiveDeviceId] = useState("lighting-main");
   const [lighting, setLighting] = useState(null);
   const [error, setError] = useState("");
-  const adapter = useMemo(() => createLightingAdapter(endpoint), []);
+  const [notice, setNotice] = useState("");
+  const noticeTimer = useRef(null);
+  const adapter = useMemo(() => deviceCatalog["lighting-rs485"].createAdapter(endpoint), []);
 
   async function refresh() {
     try {
@@ -59,6 +61,22 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "API-Fehler");
     }
+  }
+
+  // Wraps a save action: refreshes on success, surfaces failure as a banner.
+  // Resolves to true/false so callers can keep local dirty state on failure.
+  function run(action) {
+    return action()
+      .then(() => {
+        refresh();
+        return true;
+      })
+      .catch((err) => {
+        setNotice(`Speichern fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
+        window.clearTimeout(noticeTimer.current);
+        noticeTimer.current = window.setTimeout(() => setNotice(""), 6000);
+        return false;
+      });
   }
 
   useEffect(() => {
@@ -94,7 +112,7 @@ function App() {
               onClick={() => setActiveDeviceId(device.id)}
             >
               <device.icon size={14} />
-              {device.name}
+              {device.label}
             </button>
           ))}
         </div>
@@ -110,18 +128,23 @@ function App() {
       </div>
 
       <main className="content">
+        {notice && <div className="notice" role="alert">{notice}</div>}
         {!isLighting && <ComingSoon device={activeDevice} />}
         {isLighting && lighting && view === "dashboard" && (
-          <LiveView data={lighting} onSetLevels={(ch1, ch2) => adapter.setLevels(ch1, ch2).then(refresh)} />
+          <LiveView data={lighting} onSetLevels={(ch1, ch2) => run(() => adapter.setLevels(ch1, ch2))} />
         )}
         {isLighting && lighting && view === "schedule" && (
-          <ScheduleView data={lighting} onSave={(schedule) => adapter.saveSchedule(schedule).then(refresh)} />
+          <ScheduleView
+            data={lighting}
+            onSave={(schedule) => run(() => adapter.saveSchedule(schedule))}
+            onSavePresets={(presets) => run(() => adapter.savePresets(presets))}
+          />
         )}
         {isLighting && lighting && view === "logs" && (
-          <LogsView data={lighting} onSaveConfig={(config) => adapter.saveLogConfig(config).then(refresh)} onClear={() => adapter.clearLogs().then(refresh)} />
+          <LogsView data={lighting} onSaveConfig={(config) => run(() => adapter.saveLogConfig(config))} onClear={() => run(() => adapter.clearLogs())} />
         )}
         {isLighting && lighting && view === "system" && (
-          <SystemView data={lighting} onSaveThermal={(config) => adapter.saveThermal(config).then(refresh)} />
+          <SystemView data={lighting} onSaveThermal={(config) => run(() => adapter.saveThermal(config))} />
         )}
       </main>
     </div>
@@ -133,7 +156,7 @@ function ComingSoon({ device }) {
     <section className="panel">
       <div className="panel-header">
         <div>
-          <h2 className="panel-title">{device.name}</h2>
+          <h2 className="panel-title">{device.label}</h2>
           <p className="panel-sub">Controller-Typ „{device.type}"</p>
         </div>
         <span className="badge">geplant</span>
@@ -243,11 +266,13 @@ function ChannelControl({ name, series, value, applied, onChange }) {
   );
 }
 
-function ScheduleView({ data, onSave }) {
+function ScheduleView({ data, onSave, onSavePresets }) {
   const [schedule, setSchedule] = useState(data.schedule);
   const [channel, setChannel] = useState("ch1");
   const [dirty, setDirty] = useState(false);
+  const [presetName, setPresetName] = useState("");
   const points = schedule[channel];
+  const presets = data.presets;
 
   useEffect(() => {
     if (!dirty) setSchedule(data.schedule);
@@ -293,7 +318,7 @@ function ScheduleView({ data, onSave }) {
         </div>
         <div className="button-row">
           <label className="switch"><input type="checkbox" checked={schedule.enabled} onChange={(e) => commit({ ...schedule, enabled: e.target.checked })} /> aktiv</label>
-          <button className="primary" onClick={() => onSave(schedule).then(() => setDirty(false))}><Save size={14} /> Speichern</button>
+          <button className="primary" onClick={() => onSave(schedule).then((ok) => { if (ok) setDirty(false); })}><Save size={14} /> Speichern</button>
         </div>
       </div>
       <div className="panel-body schedule-layout">
@@ -323,6 +348,49 @@ function ScheduleView({ data, onSave }) {
               </div>
             ))}
             {points.length === 0 && <p className="muted">Keine Punkte — in den Chart klicken, um einen anzulegen.</p>}
+          </div>
+          <div className="preset-block">
+            <span className="editor-label">Vorlagen</span>
+            {presets.map((preset) => (
+              <div className="preset-row" key={preset.name}>
+                <button
+                  title="Vorlage in den Entwurf laden (beide Kanäle)"
+                  onClick={() => commit({ ...schedule, ch1: normalize(preset.ch1), ch2: normalize(preset.ch2) })}
+                >
+                  {preset.name}
+                </button>
+                <button
+                  className="danger ghost"
+                  aria-label={`Vorlage ${preset.name} löschen`}
+                  onClick={() => onSavePresets(presets.filter((entry) => entry.name !== preset.name))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {presets.length === 0 && <p className="muted">Noch keine Vorlagen gespeichert.</p>}
+            <div className="preset-save">
+              <input
+                placeholder="Name, z.B. Blüte"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+              />
+              <button
+                disabled={!presetName.trim()}
+                title="Aktuellen Entwurf (beide Kanäle) als Vorlage speichern"
+                onClick={() => {
+                  const name = presetName.trim();
+                  onSavePresets([
+                    ...presets.filter((entry) => entry.name !== name),
+                    { name, ch1: schedule.ch1, ch2: schedule.ch2 },
+                  ]).then((ok) => {
+                    if (ok) setPresetName("");
+                  });
+                }}
+              >
+                <Save size={14} /> Ablegen
+              </button>
+            </div>
           </div>
         </div>
       </div>

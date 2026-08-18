@@ -33,7 +33,7 @@ export const mockLightingData = {
       ch2: [{ time: 360, percent: 5 }, { time: 1320, percent: 0 }],
     },
     {
-      name: "Bluete",
+      name: "Blüte",
       ch1: [{ time: 360, percent: 20 }, { time: 720, percent: 85 }, { time: 1320, percent: 5 }],
       ch2: [{ time: 360, percent: 0 }, { time: 720, percent: 50 }, { time: 1320, percent: 0 }],
     },

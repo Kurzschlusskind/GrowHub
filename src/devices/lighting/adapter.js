@@ -29,6 +29,10 @@ export function createLightingAdapter(endpoint) {
       return api.post("/api/schedules", schedule);
     },
 
+    savePresets(presets) {
+      return api.post("/api/presets", { presets });
+    },
+
     saveThermal(config) {
       return api.post("/api/thermal", config);
     },
