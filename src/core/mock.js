@@ -10,6 +10,10 @@ export const mockLightingData = {
       temperatureC: 0,
       config: { enabled: true, triggerC: 30, releaseC: 27, overridePercent: 25, escalationSeconds: 120, sampleIntervalMs: 5000 },
     },
+    signal: {
+      config: { enabled: true, pin: 14, activeHigh: true },
+      state: "off",
+    },
   },
   schedule: {
     enabled: false,
@@ -139,6 +143,15 @@ export function mockLightingStatus() {
     }
     status.thermal.drill = drill;
   }
+  // Signal output follows the supervisor: steady while limited (stage 1-2),
+  // blinking from stage 3 on, off in normal operation.
+  status.signal.state = !status.signal.config.enabled
+    ? "disabled"
+    : !status.thermal.overrideActive
+      ? "off"
+      : (drill?.stageIndex ?? 0) >= 2
+        ? "blink"
+        : "on";
   return status;
 }
 

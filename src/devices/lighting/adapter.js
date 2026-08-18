@@ -38,6 +38,10 @@ export function createLightingAdapter(endpoint) {
       return api.post("/api/thermal", config);
     },
 
+    saveSignal(config) {
+      return api.post("/api/signal", config);
+    },
+
     startThermalDrill() {
       return api.post("/api/thermal/drill/start", {});
     },

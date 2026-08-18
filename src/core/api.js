@@ -51,6 +51,10 @@ function mockRequest(path, init = {}) {
     mockLightingData.status.applied = { ch1: body.ch1, ch2: body.ch2 };
     return { ok: true };
   }
+  if (path === "/api/signal" && init.body) {
+    mockLightingData.status.signal.config = JSON.parse(init.body);
+    return { signal: structuredClone(mockLightingData.status.signal) };
+  }
   if (path === "/api/thermal" && init.body) {
     mockLightingData.status.thermal.config = JSON.parse(init.body);
     return { thermal: structuredClone(mockLightingData.status.thermal) };

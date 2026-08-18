@@ -776,6 +776,57 @@ select:focus {
   color: #e8a35c;
 }
 
+/* ---------- signal output ---------- */
+
+.signal-state {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.signal-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.signal-state.on {
+  color: #e8a35c;
+}
+
+.signal-state.on .signal-dot {
+  background: #e8821e;
+}
+
+.signal-state.blink {
+  color: #e8a35c;
+}
+
+.signal-state.blink .signal-dot {
+  background: #e8821e;
+  animation: signal-blink 0.8s steps(1) infinite;
+}
+
+.signal-state.disabled {
+  opacity: 0.6;
+}
+
+@keyframes signal-blink {
+  50% {
+    background: var(--border-strong);
+  }
+}
+
+.notify-switch {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
 /* ---------- irrigation ---------- */
 
 .zone-grid {

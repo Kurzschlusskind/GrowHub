@@ -50,7 +50,9 @@ function App() {
   const [deviceData, setDeviceData] = useState({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("growhub.notify") === "on");
   const noticeTimer = useRef(null);
+  const prevThermalRef = useRef(null);
   const adapters = useMemo(() => {
     const map = {};
     for (const device of devices) {
@@ -75,6 +77,12 @@ function App() {
     }
   }
 
+  function showNotice(message) {
+    setNotice(message);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(""), 6000);
+  }
+
   // Wraps an action against the active adapter: refreshes on success,
   // surfaces failure as a banner. Resolves to true/false so callers can
   // keep local dirty state on failure.
@@ -85,24 +93,25 @@ function App() {
         return true;
       })
       .catch((err) => {
-        setNotice(`${label} fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
-        window.clearTimeout(noticeTimer.current);
-        noticeTimer.current = window.setTimeout(() => setNotice(""), 6000);
+        showNotice(`${label} fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
         return false;
       });
   }
 
+  // All implemented devices are polled continuously (not just the active
+  // one), so supervisor notifications fire regardless of the current tab.
   useEffect(() => {
-    if (!adapter) return;
     let cancelled = false;
     const tick = async () => {
-      try {
-        const next = await adapter.load();
-        if (cancelled) return;
-        setDeviceData((prev) => ({ ...prev, [activeDeviceId]: next }));
-        setError("");
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "API-Fehler");
+      for (const [id, deviceAdapter] of Object.entries(adapters)) {
+        try {
+          const next = await deviceAdapter.load();
+          if (cancelled) return;
+          setDeviceData((prev) => ({ ...prev, [id]: next }));
+          if (id === activeDeviceId) setError("");
+        } catch (err) {
+          if (!cancelled && id === activeDeviceId) setError(err instanceof Error ? err.message : "API-Fehler");
+        }
       }
     };
     tick();
@@ -112,6 +121,54 @@ function App() {
       window.clearInterval(timer);
     };
   }, [activeDeviceId]);
+
+  // Browser notification on every supervisor transition: takeover, each
+  // escalation stage, and the all-clear.
+  useEffect(() => {
+    const lighting = deviceData["lighting-main"];
+    if (!lighting) return;
+    const thermal = lighting.status.thermal;
+    const current = {
+      overrideActive: thermal.overrideActive,
+      stageIndex: thermal.drill?.active ? thermal.drill.stageIndex : null,
+    };
+    const prev = prevThermalRef.current;
+    prevThermalRef.current = current;
+    if (!prev || !notifyEnabled || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const temperature = thermal.sensorPresent ? ` (${thermal.temperatureC.toFixed(1)} °C)` : "";
+    let body = null;
+    if (!prev.overrideActive && current.overrideActive) {
+      body = `Supervisor aktiv — Output auf ${thermal.config.overridePercent} % limitiert${temperature}`;
+    } else if (current.stageIndex !== null && prev.stageIndex !== null && current.stageIndex > prev.stageIndex && current.stageIndex < 4) {
+      body = `Stufe ${current.stageIndex + 1} · ${drillStages[current.stageIndex].label}${temperature}`;
+    } else if (prev.overrideActive && !current.overrideActive) {
+      body = `Entwarnung — Normalbetrieb${temperature}`;
+    }
+    if (body) new Notification("GrowHub · Thermal Supervisor", { body, tag: "growhub-supervisor" });
+  }, [deviceData, notifyEnabled]);
+
+  async function toggleNotifications(enabled) {
+    if (!enabled) {
+      setNotifyEnabled(false);
+      localStorage.setItem("growhub.notify", "off");
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      showNotice("Benachrichtigungen: dieser Browser unterstützt die Notification-API nicht");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      showNotice("Benachrichtigungen: im Browser blockiert — bitte für diese Seite erlauben");
+      return;
+    }
+    setNotifyEnabled(true);
+    localStorage.setItem("growhub.notify", "on");
+    new Notification("GrowHub · Thermal Supervisor", {
+      body: "Benachrichtigungen aktiv — du wirst bei jedem Supervisor-Eingriff informiert.",
+      tag: "growhub-supervisor",
+    });
+  }
 
   const isLighting = activeDevice.type === "lighting-rs485";
   const isIrrigation = activeDevice.type === "irrigation";
@@ -183,7 +240,10 @@ function App() {
           <SystemView
             data={data}
             onSaveThermal={(config) => run(() => adapter.saveThermal(config))}
+            onSaveSignal={(config) => run(() => adapter.saveSignal(config))}
             onDrill={() => run(() => adapter.startThermalDrill(), "Testlauf")}
+            notifyEnabled={notifyEnabled}
+            onToggleNotify={toggleNotifications}
           />
         )}
         {isIrrigation && data && view === "dashboard" && (
@@ -658,8 +718,17 @@ function LogsChart({ records }) {
   );
 }
 
-function SystemView({ data, onSaveThermal, onDrill }) {
+const signalStateLabels = {
+  off: "aus",
+  on: "Dauersignal",
+  blink: "Blinksignal",
+  disabled: "deaktiviert",
+};
+
+function SystemView({ data, onSaveThermal, onSaveSignal, onDrill, notifyEnabled, onToggleNotify }) {
   const [thermal, setThermal] = useState(data.status.thermal.config);
+  const [signal, setSignal] = useState(data.status.signal.config);
+  const signalState = data.status.signal.state;
   const wifi = data.status.wifi;
   return (
     <div className="system-grid">
@@ -674,12 +743,44 @@ function SystemView({ data, onSaveThermal, onDrill }) {
             <button className="primary" onClick={() => onSaveThermal(thermal)}><Save size={14} /> Speichern</button>
           </div>
         </div>
+        <div className="panel-body">
+          <div className="form-grid">
+            <label>Auslösen ab (°C)<input type="number" value={thermal.triggerC} onChange={(e) => setThermal({ ...thermal, triggerC: Number(e.target.value) })} /></label>
+            <label>Freigabe unter (°C)<input type="number" value={thermal.releaseC} onChange={(e) => setThermal({ ...thermal, releaseC: Number(e.target.value) })} /></label>
+            <label>Limit (%)<input type="number" value={thermal.overridePercent} onChange={(e) => setThermal({ ...thermal, overridePercent: Number(e.target.value) })} /></label>
+            <label>Eskalationszeit (s)<input type="number" min={10} max={900} value={thermal.escalationSeconds} onChange={(e) => setThermal({ ...thermal, escalationSeconds: Number(e.target.value) })} /></label>
+            <label>Messintervall (ms)<input type="number" value={thermal.sampleIntervalMs} onChange={(e) => setThermal({ ...thermal, sampleIntervalMs: Number(e.target.value) })} /></label>
+          </div>
+          <label className="switch notify-switch">
+            <input type="checkbox" checked={notifyEnabled} onChange={(e) => onToggleNotify(e.target.checked)} />
+            Browser-Benachrichtigung bei jedem Supervisor-Eingriff (Übernahme, jede Stufe, Entwarnung)
+          </label>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Signalausgang</h2>
+            <p className="panel-sub">Schaltet externe Signalgeber (Signalleuchte, Summer) bei Supervisor-Eingriff — Dauersignal ab Stufe 1, Blinksignal ab Stufe 3</p>
+          </div>
+          <div className="button-row">
+            <span className={`signal-state ${signalState}`}>
+              <i className="signal-dot" /> {signalStateLabels[signalState] || signalState}
+            </span>
+            <button className="primary" onClick={() => onSaveSignal(signal)}><Save size={14} /> Speichern</button>
+          </div>
+        </div>
         <div className="panel-body form-grid">
-          <label>Auslösen ab (°C)<input type="number" value={thermal.triggerC} onChange={(e) => setThermal({ ...thermal, triggerC: Number(e.target.value) })} /></label>
-          <label>Freigabe unter (°C)<input type="number" value={thermal.releaseC} onChange={(e) => setThermal({ ...thermal, releaseC: Number(e.target.value) })} /></label>
-          <label>Limit (%)<input type="number" value={thermal.overridePercent} onChange={(e) => setThermal({ ...thermal, overridePercent: Number(e.target.value) })} /></label>
-          <label>Eskalationszeit (s)<input type="number" min={10} max={900} value={thermal.escalationSeconds} onChange={(e) => setThermal({ ...thermal, escalationSeconds: Number(e.target.value) })} /></label>
-          <label>Messintervall (ms)<input type="number" value={thermal.sampleIntervalMs} onChange={(e) => setThermal({ ...thermal, sampleIntervalMs: Number(e.target.value) })} /></label>
+          <label className="switch">
+            <input type="checkbox" checked={signal.enabled} onChange={(e) => setSignal({ ...signal, enabled: e.target.checked })} /> aktiv
+          </label>
+          <label>Pin (GPIO)<input type="number" min={0} max={39} value={signal.pin} onChange={(e) => setSignal({ ...signal, pin: Number(e.target.value) })} /></label>
+          <label>Logik
+            <select value={signal.activeHigh ? "high" : "low"} onChange={(e) => setSignal({ ...signal, activeHigh: e.target.value === "high" })}>
+              <option value="high">high-aktiv</option>
+              <option value="low">low-aktiv</option>
+            </select>
+          </label>
         </div>
       </section>
       <section className="panel">
