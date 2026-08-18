@@ -77,3 +77,14 @@ Standard-Baudrate RS-485: `9600 baud`, Format `8N1`.
 
 Weitere Details siehe [docs/USAGE.md](docs/USAGE.md), [docs/BOM.md](docs/BOM.md) und [docs/TESTS.md](docs/TESTS.md).
 
+
+## Lizenz
+
+**Alle Rechte vorbehalten.** Dieses Repository ist nur zu Demonstrationszwecken
+öffentlich — jede Nutzung des Codes erfordert die explizite schriftliche
+Erlaubnis des Autors, siehe [LICENSE](LICENSE).
+
+Das implementierte RS-485-Protokoll wurde ausschließlich zu
+Interoperabilitätszwecken per Reverse Engineering analysiert. Alle genannten
+Produkt- und Herstellernamen sind Marken ihrer jeweiligen Inhaber; dieses
+Projekt steht in keiner Verbindung zu ihnen.
