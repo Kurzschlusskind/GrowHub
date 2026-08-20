@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Greenception Ersatz-Controller</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Greenception RS-485 Controller</h1>
+    <p class="warning">Standardmodus: Listen-only. "Allow TX" aktivieren, um auf den Bus zu senden.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Kanäle</h2>
+      <div class="slider-group">
+        <label>Channel 1: <span id="ch1Value">0</span>% (raw <span id="ch1Raw">0</span>)</label>
+        <input type="range" min="0" max="100" value="0" id="ch1Slider">
+      </div>
+      <div class="slider-group">
+        <label>Channel 2: <span id="ch2Value">0</span>% (raw <span id="ch2Raw">0</span>)</label>
+        <input type="range" min="0" max="100" value="0" id="ch2Slider">
+      </div>
+      <div class="controls">
+        <button id="sendBtn">Frame senden</button>
+        <label><input type="checkbox" id="allowTx"> Allow TX / Send to Bus</label>
+        <label>Heartbeat Intervall (ms): <input type="number" id="hbInterval" value="2000" min="100"></label>
+        <button id="toggleHeartbeat">Heartbeat starten</button>
+      </div>
+      <p>Letzter Frame: <span id="lastFrame">–</span></p>
+    </section>
+
+    <section class="card">
+      <h2>Presets</h2>
+      <div class="preset-controls">
+        <input type="text" id="presetName" placeholder="Presetname">
+        <button id="savePreset">Preset speichern</button>
+      </div>
+      <ul id="presetList"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Mapping</h2>
+      <label><input type="checkbox" id="identityMode"> Identity Mode (0..100% → 0..255)</label>
+      <table id="mappingTable">
+        <thead>
+          <tr><th>%</th><th>Raw</th><th>Aktionen</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <button id="addPoint">Messpunkt hinzufügen</button>
+      <button id="saveMapping">Recompute &amp; Speichern</button>
+    </section>
+
+    <section class="card">
+      <h2>Sniffer / Log</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
