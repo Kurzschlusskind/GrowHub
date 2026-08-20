@@ -1,7 +1,8 @@
 import { createApiClient } from "../../core/api";
+import { mockLightingRequest } from "../../core/mock";
 
 export function createLightingAdapter(endpoint) {
-  const api = createApiClient(endpoint);
+  const api = createApiClient(endpoint, mockLightingRequest);
 
   return {
     async load() {

@@ -1,10 +1,11 @@
 import { createApiClient } from "../../core/api";
+import { mockIrrigationRequest } from "./mock";
 
 // Client for the irrigation controller contract (spec/irrigation-controller.md).
 // The device announces its own topology via /capabilities; the app renders
 // whatever is reported. Connect real hardware via ?irrigation=http://<ip>.
 export function createIrrigationAdapter(endpoint) {
-  const api = createApiClient(endpoint);
+  const api = createApiClient(endpoint, mockIrrigationRequest);
 
   return {
     async load() {

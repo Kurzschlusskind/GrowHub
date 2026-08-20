@@ -49,8 +49,8 @@ the reference implementation of every spec.
 ```text
 spec/           device API specifications (own sub-project)
 firmware/       controller firmware (PlatformIO sub-projects)
-src/core/       app state, API clients, formatting, mock data
-src/devices/    device adapters and catalog
+src/core/       app shell services: HTTP client, formatting, shared UI
+src/devices/    self-contained device modules (adapter + mock + views) + catalog
 src/styles/     design system and layout
 tools/          firmware embedding helpers
 ```
