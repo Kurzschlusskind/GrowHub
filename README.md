@@ -36,9 +36,18 @@ http://localhost:5173/?irrigation=http://192.168.178.37
 
 Without a query parameter, GrowHub uses mock data. The irrigation controller currently always runs on mock data — the hardware integration is still in progress and marked as such in the UI.
 
+## Device API
+
+Controllers talk to GrowHub over documented HTTP contracts — a device that
+implements one of the [specifications](spec/README.md) works with the app out
+of the box, no app changes required. The device announces its own topology
+(pumps, valves, channels); the app renders whatever is reported. The mock is
+the reference implementation of every spec.
+
 ## Structure
 
 ```text
+spec/           device API specifications (own sub-project)
 src/core/       app state, API clients, formatting, mock data
 src/devices/    device adapters and catalog
 src/styles/     design system and layout
