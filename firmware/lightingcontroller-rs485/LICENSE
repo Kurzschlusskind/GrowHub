@@ -1,25 +1,12 @@
 Copyright (c) 2026 Lennard Musch (GitHub: Kurzschlusskind)
 
-All rights reserved.
-
-This source code is made publicly visible for demonstration and evaluation
-purposes only. No license is granted.
-
-You may NOT use, copy, modify, merge, publish, distribute, sublicense, sell,
-embed, or otherwise exploit this software or any part of it — commercially or
-non-commercially — without the prior explicit written permission of the
-copyright holder.
+Licensed under the PolyForm Strict License 1.0.0 — see the LICENSE file in
+the repository root for the full text. In short: noncommercial use permitted,
+no commercial use, no distribution, no derivative works.
 
 Protocol notice: This project implements parts of a proprietary RS-485
 communication protocol that were reverse engineered from third-party hardware
 solely for interoperability purposes. This notice grants no rights whatsoever
 to any third-party protocols, trademarks, or products; all third-party names
-mentioned in this repository are trademarks of their respective owners, and
+mentioned in this directory are trademarks of their respective owners, and
 this project is not affiliated with or endorsed by them.
-
-To request permission, contact the copyright holder via GitHub:
-https://github.com/Kurzschlusskind
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
-DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.

@@ -80,9 +80,9 @@ Weitere Details siehe [docs/USAGE.md](docs/USAGE.md), [docs/BOM.md](docs/BOM.md)
 
 ## Lizenz
 
-**Alle Rechte vorbehalten.** Dieses Repository ist nur zu Demonstrationszwecken
-öffentlich — jede Nutzung des Codes erfordert die explizite schriftliche
-Erlaubnis des Autors, siehe [LICENSE](LICENSE).
+[PolyForm Strict 1.0.0](LICENSE) — nichtkommerzielle Nutzung (auch privat
+zu Hause) erlaubt; keine kommerzielle Nutzung, keine Weiterverbreitung, keine
+abgeleiteten Werke. Volltext in der LICENSE im Repository-Root.
 
 Das implementierte RS-485-Protokoll wurde ausschließlich zu
 Interoperabilitätszwecken per Reverse Engineering analysiert. Alle genannten

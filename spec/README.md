@@ -16,6 +16,14 @@ contracts: everything specified here can be observed live in the
 | [Irrigation Controller](irrigation-controller.md) | 1.0.0 | draft |
 | [Lighting Controller](lighting-controller.md) | 1.0.0 | draft |
 
+## License
+
+The specifications in this directory are licensed under
+[CC BY 4.0](LICENSE) (© 2026 Lennard Musch) — implement them freely,
+including in commercial devices, with attribution. Note that this covers the
+specifications only; the GrowHub app and firmware are licensed separately
+(PolyForm Strict 1.0.0, see the repository root LICENSE).
+
 ## Versioning
 
 Each specification carries its own semantic version, stated at the top of the

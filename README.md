@@ -61,9 +61,12 @@ repository, full history preserved).
 
 ## License
 
-**All rights reserved.** This repository is public for demonstration purposes
-only — using the code in any form requires the explicit written permission of
-the author. See [LICENSE](LICENSE).
+- **App & firmware:** [PolyForm Strict 1.0.0](LICENSE) — you may use GrowHub
+  for noncommercial purposes, including running it privately at home. No
+  commercial use, no distribution, no derivative works. For anything beyond
+  that, ask the author.
+- **Device API specifications** (`spec/`): [CC BY 4.0](spec/LICENSE) — free
+  to implement, including in commercial devices, with attribution.
 
 ## Deployment
 
