@@ -48,11 +48,16 @@ the reference implementation of every spec.
 
 ```text
 spec/           device API specifications (own sub-project)
+firmware/       controller firmware (PlatformIO sub-projects)
 src/core/       app state, API clients, formatting, mock data
 src/devices/    device adapters and catalog
 src/styles/     design system and layout
 tools/          firmware embedding helpers
 ```
+
+The RS-485 lighting controller firmware lives in
+`firmware/lightingcontroller-rs485/` (moved here from its former standalone
+repository, full history preserved).
 
 ## License
 
