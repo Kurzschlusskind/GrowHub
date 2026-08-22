@@ -74,12 +74,14 @@ running the emergency flush. Optional browser notifications on every
 transition, plus a configurable **signal output** (stack light / buzzer:
 steady from stage 1, blinking from stage 3).
 
+The UI is organized by function, not by device: **Übersicht**, **Zeitplan**,
+**Verlauf** and **Einstellungen** each show every controller as a section on
+one page — the whole room at a glance.
+
 | | |
 |---|---|
-| ![Schedule editor](docs/screenshots/schedule.png) | ![Irrigation](docs/screenshots/irrigation.png) |
-| Daily curve editor — drag points directly in the chart | Irrigation rendered from the announced topology |
-| ![Thermal Supervisor](docs/screenshots/supervisor.png) | ![History](docs/screenshots/history.png) |
-| Supervisor config, drill trigger and signal output | Channel history from the device's sample ring buffer |
+| ![Schedule editor](docs/screenshots/schedule.png) | ![Thermal Supervisor](docs/screenshots/supervisor.png) |
+| Schedules for all devices — draggable daily curve, valve time windows | Settings: supervisor, signal output, pump safety, controller health |
 
 ## Device API
 
@@ -101,8 +103,8 @@ https://<growhub-host>/?irrigation=http://<device-ip>
 https://<growhub-host>/?lighting=http://<device-ip>
 ```
 
-No pairing, no cloud, no accounts. Deep links: `?device=irrigation`,
-`?view=schedule`.
+No pairing, no cloud, no accounts. Deep links: `?view=schedule`,
+`?view=system`.
 
 ## Firmware
 

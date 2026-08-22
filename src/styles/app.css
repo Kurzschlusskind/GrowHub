@@ -258,26 +258,27 @@ select:focus {
   border-bottom: 1px solid var(--border);
 }
 
-.device-picker {
+.device-section {
+  display: grid;
+  gap: 12px;
+}
+
+.device-heading {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--accent);
 }
 
-.device-chip {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--muted);
-}
-
-.device-chip.active {
-  background: var(--panel-2);
-  border-color: var(--border-strong);
+.device-heading h2 {
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-strong);
 }
 
-.device-chip.active svg {
-  color: var(--accent);
+.device-heading .muted {
+  font-size: 12px;
 }
 
 .view-tabs {

@@ -15,16 +15,41 @@ const devices = [
   { id: "climate-next", type: "climate" },
 ].map((device) => ({ ...device, ...deviceCatalog[device.type] }));
 
-// Deep link to a device: ?device=irrigation (matches the catalog type or its
-// leading word, e.g. "lighting").
-const initialDeviceId = (devices.find((device) => device.type.startsWith(params.get("device") || "")) || devices[0]).id;
-
 const views = [
   { id: "dashboard", label: "Übersicht" },
   { id: "schedule", label: "Zeitplan" },
   { id: "logs", label: "Verlauf" },
-  { id: "system", label: "System" },
+  { id: "system", label: "Einstellungen" },
 ];
+
+// Adapters for the app-shell rendering of the lighting views (they migrate
+// into src/devices/lighting/ next); irrigation brings its own map via the
+// catalog. Both are rendered identically: one section per device and view.
+const lightingViews = {
+  dashboard: ({ data, adapter, run }) => (
+    <LiveView data={data} onSetLevels={(ch1, ch2) => run(() => adapter.setLevels(ch1, ch2))} />
+  ),
+  schedule: ({ data, adapter, run }) => (
+    <ScheduleView
+      data={data}
+      onSave={(schedule) => run(() => adapter.saveSchedule(schedule))}
+      onSavePresets={(presets) => run(() => adapter.savePresets(presets))}
+    />
+  ),
+  logs: ({ data, adapter, run }) => (
+    <LogsView data={data} onSaveConfig={(config) => run(() => adapter.saveLogConfig(config))} onClear={() => run(() => adapter.clearLogs())} />
+  ),
+  system: ({ data, adapter, run, notifyEnabled, onToggleNotify }) => (
+    <SystemView
+      data={data}
+      onSaveThermal={(config) => run(() => adapter.saveThermal(config))}
+      onSaveSignal={(config) => run(() => adapter.saveSignal(config))}
+      onDrill={() => run(() => adapter.startThermalDrill(), "Testlauf")}
+      notifyEnabled={notifyEnabled}
+      onToggleNotify={onToggleNotify}
+    />
+  ),
+};
 
 // Measures an element in CSS pixels so charts can render 1:1 (viewBox = size),
 // which keeps pointer coordinates exact and text at native size.
@@ -51,9 +76,8 @@ function useElementSize() {
 
 function App() {
   const [view, setView] = useState(initialView);
-  const [activeDeviceId, setActiveDeviceId] = useState(initialDeviceId);
   const [deviceData, setDeviceData] = useState({});
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState({});
   const [notice, setNotice] = useState("");
   const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("growhub.notify") === "on");
   const noticeTimer = useRef(null);
@@ -67,44 +91,36 @@ function App() {
     return map;
   }, []);
 
-  const activeDevice = devices.find((device) => device.id === activeDeviceId) || devices[0];
-  const adapter = adapters[activeDeviceId];
-  const data = deviceData[activeDeviceId];
-
-  async function refresh() {
-    if (!adapter) return;
-    try {
-      const next = await adapter.load();
-      setDeviceData((prev) => ({ ...prev, [activeDeviceId]: next }));
-      setError("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "API-Fehler");
-    }
-  }
-
   function showNotice(message) {
     setNotice(message);
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(""), 6000);
   }
 
-  // Wraps an action against the active adapter: refreshes on success,
-  // surfaces failure as a banner. Resolves to true/false so callers can
-  // keep local dirty state on failure.
-  function run(action, label = "Speichern") {
-    return action()
-      .then(() => {
-        refresh();
-        return true;
-      })
-      .catch((err) => {
-        showNotice(`${label} fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
-        return false;
-      });
+  // Device-scoped action runner: refreshes that device on success, surfaces
+  // failure as a banner. Resolves to true/false so callers can keep local
+  // dirty state on failure.
+  function runFor(deviceId) {
+    const deviceAdapter = adapters[deviceId];
+    return (action, label = "Speichern") =>
+      action()
+        .then(async () => {
+          try {
+            const next = await deviceAdapter.load();
+            setDeviceData((prev) => ({ ...prev, [deviceId]: next }));
+          } catch {
+            /* the next poll surfaces it */
+          }
+          return true;
+        })
+        .catch((err) => {
+          showNotice(`${label} fehlgeschlagen: ${err instanceof Error ? err.message : "API-Fehler"}`);
+          return false;
+        });
   }
 
-  // All implemented devices are polled continuously (not just the active
-  // one), so supervisor notifications fire regardless of the current tab.
+  // Every implemented device is polled continuously — all sections stay live
+  // and supervisor notifications fire regardless of the current tab.
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
@@ -113,9 +129,9 @@ function App() {
           const next = await deviceAdapter.load();
           if (cancelled) return;
           setDeviceData((prev) => ({ ...prev, [id]: next }));
-          if (id === activeDeviceId) setError("");
+          setErrors((prev) => (prev[id] ? { ...prev, [id]: "" } : prev));
         } catch (err) {
-          if (!cancelled && id === activeDeviceId) setError(err instanceof Error ? err.message : "API-Fehler");
+          if (!cancelled) setErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : "API-Fehler" }));
         }
       }
     };
@@ -125,7 +141,7 @@ function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeDeviceId]);
+  }, []);
 
   // Browser notification on every supervisor transition: takeover, each
   // escalation stage, and the all-clear.
@@ -188,8 +204,9 @@ function App() {
     }
   }
 
-  const isLighting = activeDevice.type === "lighting-rs485";
-  const wifi = data?.status.wifi;
+  const lightingData = deviceData["lighting-main"];
+  const firstError = devices.map((device) => errors[device.id]).find(Boolean);
+  const allMock = devices.every((device) => !adapters[device.id] || !device.endpoint);
 
   return (
     <div className="app">
@@ -199,74 +216,57 @@ function App() {
           <strong>GrowHub</strong>
           <span className="crumb">Blütezelt</span>
         </div>
-        <div className="conn" title={error || undefined}>
-          <span className={`conn-dot ${error ? "bad" : adapter ? "ok" : "off"}`} />
-          <span>{error ? "Verbindung gestört" : !adapter ? "geplant — kein Controller" : wifi?.connected ? `${wifi.ssid} · ${wifi.ip}` : "Mock-Daten"}</span>
+        <div className="conn" title={firstError || undefined}>
+          <span className={`conn-dot ${firstError ? "bad" : "ok"}`} />
+          <span>{firstError ? "Verbindung gestört" : allMock ? "Mock-Daten" : "verbunden"}</span>
         </div>
       </header>
 
       <div className="toolbar">
-        <div className="device-picker" role="tablist" aria-label="Controller">
-          {devices.map((device) => (
-            <button
-              className={`device-chip ${activeDeviceId === device.id ? "active" : ""}`}
-              key={device.id}
-              onClick={() => setActiveDeviceId(device.id)}
-            >
-              <device.icon size={14} />
-              {device.label}
+        <nav className="view-tabs">
+          {views.map((entry) => (
+            <button key={entry.id} className={view === entry.id ? "active" : ""} onClick={() => setView(entry.id)}>
+              {entry.label}
             </button>
           ))}
-        </div>
-        {adapter && (
-          <nav className="view-tabs">
-            {views.map((entry) => (
-              <button key={entry.id} className={view === entry.id ? "active" : ""} onClick={() => setView(entry.id)}>
-                {entry.label}
-              </button>
-            ))}
-          </nav>
-        )}
+        </nav>
       </div>
 
       <main className="content">
         {notice && <div className="notice" role="alert">{notice}</div>}
-        {isLighting && data?.status.thermal.drill?.active && (
+        {lightingData?.status.thermal.drill?.active && (
           <ThermalDrillPanel
-            drill={data.status.thermal.drill}
-            config={data.status.thermal.config}
-            receivedAt={data.receivedAt}
-            onAbort={() => run(() => adapter.stopThermalDrill(), "Abbrechen")}
+            drill={lightingData.status.thermal.drill}
+            config={lightingData.status.thermal.config}
+            receivedAt={lightingData.receivedAt}
+            onAbort={() => runFor("lighting-main")(() => adapters["lighting-main"].stopThermalDrill(), "Abbrechen")}
           />
         )}
-        {!adapter && <ComingSoon device={activeDevice} />}
-        {isLighting && data && view === "dashboard" && (
-          <LiveView data={data} onSetLevels={(ch1, ch2) => run(() => adapter.setLevels(ch1, ch2))} />
-        )}
-        {isLighting && data && view === "schedule" && (
-          <ScheduleView
-            data={data}
-            onSave={(schedule) => run(() => adapter.saveSchedule(schedule))}
-            onSavePresets={(presets) => run(() => adapter.savePresets(presets))}
-          />
-        )}
-        {isLighting && data && view === "logs" && (
-          <LogsView data={data} onSaveConfig={(config) => run(() => adapter.saveLogConfig(config))} onClear={() => run(() => adapter.clearLogs())} />
-        )}
-        {isLighting && data && view === "system" && (
-          <SystemView
-            data={data}
-            onSaveThermal={(config) => run(() => adapter.saveThermal(config))}
-            onSaveSignal={(config) => run(() => adapter.saveSignal(config))}
-            onDrill={() => run(() => adapter.startThermalDrill(), "Testlauf")}
-            notifyEnabled={notifyEnabled}
-            onToggleNotify={toggleNotifications}
-          />
-        )}
-        {activeDevice.views && data && (() => {
-          const DeviceView = activeDevice.views[view];
-          return DeviceView ? <DeviceView data={data} adapter={adapter} run={run} /> : null;
-        })()}
+        {devices.map((device) => {
+          const deviceAdapter = adapters[device.id];
+          if (!deviceAdapter) {
+            return view === "dashboard" ? <ComingSoon device={device} key={device.id} /> : null;
+          }
+          const data = deviceData[device.id];
+          const DeviceView = (device.views || lightingViews)[view];
+          if (!data || !DeviceView) return null;
+          return (
+            <section className="device-section" key={device.id}>
+              <div className="device-heading">
+                <device.icon size={15} />
+                <h2>{device.label}</h2>
+                <span className="muted">{errors[device.id] ? `Verbindung gestört — ${errors[device.id]}` : device.detail}</span>
+              </div>
+              <DeviceView
+                data={data}
+                adapter={deviceAdapter}
+                run={runFor(device.id)}
+                notifyEnabled={notifyEnabled}
+                onToggleNotify={toggleNotifications}
+              />
+            </section>
+          );
+        })}
       </main>
     </div>
   );
