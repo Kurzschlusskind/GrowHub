@@ -124,9 +124,12 @@ PlatformIO sub-projects under [`firmware/`](firmware/):
   hard per-run deadlines, valve-before-pump switching order, NTP-gated
   schedules, atomic config persistence.
 - [`firmware/lightingcontroller-rs485/`](firmware/lightingcontroller-rs485/)
-  — ESP32 replacement controller driving grow lights over a
-  reverse-engineered RS-485 frame protocol (interoperability notice in its
-  LICENSE).
+  — ESP32 replacement controller for Greenception grow lights, driving them
+  over their proprietary RS-485 frame protocol. The protocol was analyzed by
+  reverse engineering **solely for interoperability**. This project is not
+  affiliated with or endorsed by Greenception; "Greenception" and all other
+  third-party names are trademarks of their respective owners (see the
+  interoperability notice in the firmware's LICENSE).
 
 ```text
 pio run -t uploadfs && pio run -t upload

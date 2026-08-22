@@ -1,5 +1,12 @@
 # Greenception RS-485 Ersatz-Controller
 
+> **Interoperabilitäts-Hinweis:** Dieses Projekt implementiert Teile eines
+> proprietären RS-485-Protokolls, die ausschließlich zu
+> Interoperabilitätszwecken per Reverse Engineering analysiert wurden. Es
+> besteht keine Verbindung zu Greenception; „Greenception" und alle weiteren
+> genannten Produkt- und Herstellernamen sind Marken ihrer jeweiligen
+> Inhaber. Details in der [LICENSE](LICENSE).
+
 Vollständiges PlatformIO-Projekt für einen ESP32 (Arduino-Framework), das als Ersatz-Controller für Greenception-Growlights dient. Es stellt eine Web-UI zur Verfügung, snifft und sendet proprietäre RS-485-Frames und bietet eine editierbare Kalibrier-Mapping-Tabelle.
 
 ## Funktionsüberblick
