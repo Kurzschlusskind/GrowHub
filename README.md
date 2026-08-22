@@ -55,9 +55,11 @@ src/styles/     design system and layout
 tools/          firmware embedding helpers
 ```
 
-The RS-485 lighting controller firmware lives in
-`firmware/lightingcontroller-rs485/` (moved here from its former standalone
-repository, full history preserved).
+Firmware sub-projects: `firmware/lightingcontroller-rs485/` (RS-485 lighting
+controller, moved here from its former standalone repository with full
+history) and `firmware/irrigationcontroller/` (ESP32 irrigation controller
+implementing `spec/irrigation-controller.md` — valve/pump topology is pure
+configuration).
 
 ## License
 

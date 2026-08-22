@@ -1,0 +1,13 @@
+{
+  "pumps": [
+    { "id": "p1", "name": "Hauptpumpe", "pin": 26, "activeLow": true }
+  ],
+  "valves": [
+    { "id": "v1", "type": "irrigation", "name": "Zone 1 · Tropf", "pump": "p1", "pin": 16, "activeLow": true },
+    { "id": "v2", "type": "irrigation", "name": "Zone 2 · Tropf", "pump": "p1", "pin": 17, "activeLow": true },
+    { "id": "v3", "type": "irrigation", "name": "Zone 3 · Tropf", "pump": "p1", "pin": 18, "activeLow": true },
+    { "id": "v4", "type": "irrigation", "name": "Zone 4 · Tropf", "pump": "p1", "pin": 19, "activeLow": true },
+    { "id": "v5", "type": "irrigation", "name": "Zone 5 · Sprüher", "pump": "p1", "pin": 21, "activeLow": true },
+    { "id": "d1", "type": "drain", "name": "Drainage", "pump": "p1", "pin": 22, "activeLow": true }
+  ]
+}
