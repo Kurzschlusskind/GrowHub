@@ -125,6 +125,16 @@ PlatformIO sub-projects under [`firmware/`](firmware/):
 pio run -t uploadfs && pio run -t upload
 ```
 
+## Server (optional)
+
+For a permanent installation, the [GrowHub Server](server/README.md)
+(Node >= 24, zero npm dependencies, SQLite built in) adds what a stateless
+browser app cannot: a persistent device registry, a device proxy, and a
+history collector that records weeks of samples and runs instead of the
+controllers' small ring buffers. Spec:
+[`spec/growhub-server.md`](spec/growhub-server.md). The app keeps working
+without it — direct mode and the mock demo stay untouched.
+
 ## Development
 
 Requires Node.js >= 20.19.
