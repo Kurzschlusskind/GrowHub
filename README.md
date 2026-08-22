@@ -129,9 +129,11 @@ pio run -t uploadfs && pio run -t upload
 
 For a permanent installation, the [GrowHub Server](server/README.md)
 (Node >= 24, zero npm dependencies, SQLite built in) adds what a stateless
-browser app cannot: a persistent device registry, a device proxy, and a
-history collector that records weeks of samples and runs instead of the
-controllers' small ring buffers. Spec:
+browser app cannot: a persistent device registry (the app auto-detects the
+server and switches to it), long-term history — months of samples and runs
+with in-app range views from 24 h to 3 years, user-controlled retention and
+targeted range deletion — and **signed write requests** across all tiers
+(browser → server → device, HMAC-SHA256, [spec](spec/signing.md)). Specs:
 [`spec/growhub-server.md`](spec/growhub-server.md). The app keeps working
 without it — direct mode and the mock demo stay untouched.
 

@@ -5,31 +5,36 @@ import { fileURLToPath } from "node:url";
 
 import { openDb } from "./db.mjs";
 import { startCollector } from "./collector.mjs";
+import { signHeaders, verifySignature } from "./signing.mjs";
 
-// GrowHub Server — Phase 1 of spec/growhub-server.md: device registry,
-// transparent device proxy, history collector, static hosting of the app.
+// GrowHub Server — spec/growhub-server.md: device registry, transparent
+// device proxy, history collector with user-controlled retention and range
+// deletion, static hosting, request signing for all write endpoints.
 // Zero dependencies: node:http + node:sqlite (Node >= 24).
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const serverDir = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
-const configPath = join(serverDir, "config.json");
+const configPath = process.env.GROWHUB_CONFIG || join(serverDir, "config.json");
 
 if (!existsSync(configPath)) {
   console.error("server/config.json fehlt — siehe server/config.example.json");
   process.exit(1);
 }
 const config = JSON.parse(readFileSync(configPath, "utf8"));
-const port = config.port ?? 8420;
+const port = Number(process.env.GROWHUB_PORT || config.port || 8420);
 const devices = config.devices ?? [];
 const distDir = resolve(serverDir, config.distDir ?? "../dist");
+const apiSecret = config.apiSecret || "";
 const startedAt = Date.now();
 
-const db = openDb(join(serverDir, "growhub.db"));
+const db = openDb(process.env.GROWHUB_DB || join(serverDir, "growhub.db"));
+const retentionDays = () => db.getSetting("retentionDays", config.retentionDays ?? 365);
+
 const collector = startCollector({
   devices,
   db,
   pollIntervalSeconds: config.pollIntervalSeconds ?? 300,
-  retentionDays: config.retentionDays ?? 90,
+  getRetentionDays: retentionDays,
   log: console.log,
 });
 
@@ -47,8 +52,8 @@ function sendJson(res, code, body) {
   res.writeHead(code, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-GrowHub-Timestamp, X-GrowHub-Signature",
   });
   res.end(JSON.stringify(body));
 }
@@ -62,18 +67,43 @@ function readBody(req) {
   });
 }
 
-async function proxyDevice(req, res, deviceId, path) {
+// Write requests must carry a valid signature when an apiSecret is
+// configured (spec/signing.md). Reads stay open.
+function checkWriteSignature(req, res, pathname, bodyText) {
+  if (!apiSecret) return true;
+  const result = verifySignature(
+    apiSecret, req.method, pathname, bodyText,
+    req.headers["x-growhub-timestamp"], req.headers["x-growhub-signature"],
+  );
+  if (!result.ok) {
+    sendJson(res, 401, { error: result.error });
+    return false;
+  }
+  return true;
+}
+
+async function proxyDevice(req, res, deviceId, path, pathname) {
   const device = devices.find((entry) => entry.id === deviceId);
   if (!device || !device.endpoint) {
     sendJson(res, 404, { error: `Unbekanntes Gerät: ${deviceId}` });
     return;
   }
   try {
-    const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req);
+    const isWrite = req.method !== "GET" && req.method !== "HEAD";
+    const body = isWrite ? await readBody(req) : undefined;
+    const bodyText = body ? body.toString("utf8") : "";
+    if (isWrite && !checkWriteSignature(req, res, pathname, bodyText)) return;
+
+    const devicePathname = new URL(`${device.endpoint}${path}`).pathname;
+    const headers = { "Content-Type": "application/json" };
+    // Re-sign the forwarded write with the same installation secret; the
+    // device verifies against its own copy of it.
+    if (isWrite && apiSecret) Object.assign(headers, signHeaders(apiSecret, req.method, devicePathname, bodyText));
+
     const response = await fetch(`${device.endpoint}${path}`, {
       method: req.method,
-      headers: { "Content-Type": "application/json" },
-      body: body && body.length ? body : undefined,
+      headers,
+      body: isWrite && body?.length ? body : undefined,
       signal: AbortSignal.timeout(8000),
     });
     const text = await response.text();
@@ -106,16 +136,22 @@ function serveStatic(res, urlPath) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${port}`);
+  const pathname = url.pathname;
 
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});
     return;
   }
-  if (url.pathname === "/api/server/info") {
-    sendJson(res, 200, { name: "growhub-server", version: VERSION, uptimeSeconds: Math.round((Date.now() - startedAt) / 1000) });
+  if (pathname === "/api/server/info") {
+    sendJson(res, 200, {
+      name: "growhub-server",
+      version: VERSION,
+      uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+      signing: Boolean(apiSecret),
+    });
     return;
   }
-  if (url.pathname === "/api/server/devices") {
+  if (pathname === "/api/server/devices") {
     sendJson(res, 200, {
       devices: devices.map((device) => ({
         id: device.id,
@@ -126,26 +162,61 @@ const server = createServer(async (req, res) => {
     });
     return;
   }
-  const historyMatch = url.pathname.match(/^\/api\/server\/history\/([^/]+)$/);
+  if (pathname === "/api/server/settings") {
+    if (req.method === "POST") {
+      const bodyText = (await readBody(req)).toString("utf8");
+      if (!checkWriteSignature(req, res, pathname, bodyText)) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(bodyText);
+      } catch {
+        sendJson(res, 400, { error: "Ungültiges JSON" });
+        return;
+      }
+      const days = Number(parsed.retentionDays);
+      if (!Number.isFinite(days) || days < 1 || days > 1200) {
+        sendJson(res, 400, { error: "retentionDays muss zwischen 1 und 1200 liegen" });
+        return;
+      }
+      db.setSetting("retentionDays", Math.round(days));
+    }
+    sendJson(res, 200, { retentionDays: retentionDays() });
+    return;
+  }
+  const historyMatch = pathname.match(/^\/api\/server\/history\/([^/]+)$/);
   if (historyMatch) {
+    const deviceId = decodeURIComponent(historyMatch[1]);
+    if (req.method === "DELETE") {
+      const bodyText = (await readBody(req)).toString("utf8");
+      if (!checkWriteSignature(req, res, pathname, bodyText)) return;
+      const from = Number(url.searchParams.get("from"));
+      const to = Number(url.searchParams.get("to"));
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
+        sendJson(res, 400, { error: "from/to (Epoch-Millisekunden) erforderlich" });
+        return;
+      }
+      sendJson(res, 200, db.deleteRange(deviceId, from, to));
+      return;
+    }
     const from = Number(url.searchParams.get("from") ?? 0);
     const to = Number(url.searchParams.get("to") ?? Date.now());
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? 1000), 10000);
-    sendJson(res, 200, db.history(decodeURIComponent(historyMatch[1]), from, to, limit));
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? 2000), 20000);
+    const bucketMinutes = Number(url.searchParams.get("bucketMinutes") ?? 0);
+    sendJson(res, 200, db.history(deviceId, from, to, limit, bucketMinutes));
     return;
   }
-  const proxyMatch = url.pathname.match(/^\/api\/devices\/([^/]+)(\/.*)$/);
+  const proxyMatch = pathname.match(/^\/api\/devices\/([^/]+)(\/.*)$/);
   if (proxyMatch) {
-    await proxyDevice(req, res, decodeURIComponent(proxyMatch[1]), proxyMatch[2] + url.search);
+    await proxyDevice(req, res, decodeURIComponent(proxyMatch[1]), proxyMatch[2] + url.search, pathname);
     return;
   }
-  if (url.pathname.startsWith("/api/")) {
+  if (pathname.startsWith("/api/")) {
     sendJson(res, 404, { error: "Unbekannter Endpunkt" });
     return;
   }
-  serveStatic(res, url.pathname);
+  serveStatic(res, pathname);
 });
 
 server.listen(port, () => {
-  console.log(`growhub-server ${VERSION} auf http://localhost:${port} — ${devices.length} Gerät(e), App aus ${distDir}`);
+  console.log(`growhub-server ${VERSION} auf http://localhost:${port} — ${devices.length} Gerät(e), Signierung ${apiSecret ? "aktiv" : "aus"}, App aus ${distDir}`);
 });

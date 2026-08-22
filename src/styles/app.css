@@ -589,6 +589,19 @@ select:focus {
   color: var(--text-strong);
 }
 
+.chart-footnote {
+  position: absolute;
+  right: 10px;
+  bottom: -4px;
+  font-size: 11px;
+}
+
+.delete-grid {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
 .chart-tooltip span {
   display: inline-flex;
   gap: 6px;

@@ -1,5 +1,6 @@
 {
   "ssid": "YourNetwork",
   "password": "YourPassword",
-  "hostname": "growhub-irrigation"
+  "hostname": "growhub-irrigation",
+  "apiSecret": ""
 }

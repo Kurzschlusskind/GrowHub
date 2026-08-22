@@ -1,4 +1,4 @@
-# GrowHub Server — Specification 0.1.0 (draft)
+# GrowHub Server — Specification 0.2.0 (draft)
 
 The GrowHub Server is the persistence and orchestration layer of a GrowHub
 installation. It runs on a PC, home server or Raspberry Pi, talks to the
@@ -35,13 +35,13 @@ UI only                   registry · proxy · collector             physical tr
 
 ## Phases
 
-- **Phase 1 (this document):** registry, device proxy, history collector,
-  static hosting of the app.
-- **Phase 2:** SPA server mode (auto-detect, registry-driven adapters),
-  server-side notifications.
-- **Phase 3:** cross-device orchestration — the thermal supervisor's
-  escalation chain (fan, drain, root flush) executed by the server against
-  real controllers; automation rules.
+- **Phase 1:** registry, device proxy, history collector, static hosting.
+- **Phase 2 (this document):** SPA server mode (auto-detect, registry-driven
+  adapters, long-term history views), user-controlled retention and range
+  deletion, request signing ([signing.md](signing.md)).
+- **Phase 3:** server-side notifications; cross-device orchestration — the
+  thermal supervisor's escalation chain (fan, drain, root flush) executed by
+  the server against real controllers; automation rules.
 
 ## Configuration
 
@@ -51,7 +51,8 @@ UI only                   registry · proxy · collector             physical tr
 {
   "port": 8420,
   "pollIntervalSeconds": 300,
-  "retentionDays": 90,
+  "retentionDays": 365,
+  "apiSecret": "<installation secret, empty = signing disabled>",
   "devices": [
     { "id": "lighting-main", "type": "lighting-rs485", "endpoint": "http://192.168.178.36" },
     { "id": "irrigation-1", "type": "irrigation", "endpoint": "http://192.168.178.37" }
@@ -89,7 +90,7 @@ Transparent proxy to the registered device: method, body and response are
 passed through unchanged (e.g. `GET /api/devices/irrigation-1/api/irrigation/status`).
 Unknown ids: 404. Unreachable devices: 502 with an error body.
 
-### `GET /api/server/history/<id>?from=<ms>&to=<ms>&limit=<n>`
+### `GET /api/server/history/<id>?from=<ms>&to=<ms>&limit=<n>&bucketMinutes=<m>`
 
 ```json
 {
@@ -99,8 +100,32 @@ Unknown ids: 404. Unreachable devices: 502 with an error body.
 ```
 
 Samples are periodic status snapshots (every `pollIntervalSeconds`); runs are
-irrigation history events, deduplicated by `(device, at, valve)`. Rows older
-than `retentionDays` are pruned.
+irrigation history events, deduplicated by `(device, at, valve)`. With
+`bucketMinutes` > 0, samples are aggregated server-side per time bucket and
+carry averaged numeric metrics instead of raw payloads
+(`{ "at", "ch1", "ch2", "temperature", "count" }`) — this is how the app
+renders months of data without shipping every raw row.
+
+### `DELETE /api/server/history/<id>?from=<ms>&to=<ms>` (signed write)
+
+User-controlled range deletion; responds
+`{ "deletedSamples": n, "deletedRuns": m }`. Irreversible.
+
+### `GET/POST /api/server/settings` (POST is a signed write)
+
+```json
+{ "retentionDays": 365 }
+```
+
+`retentionDays` (1–1200) controls automatic pruning after every collector
+cycle and is persisted in the database, overriding the config default.
+
+### Request signing
+
+When `apiSecret` is configured, every write endpoint (settings, range
+delete, proxied device writes) requires a valid signature per
+[signing.md](signing.md); proxied writes are re-signed towards the device.
+Reads stay open.
 
 ### Static hosting
 

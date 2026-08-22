@@ -14,6 +14,7 @@ namespace {
 Topology topology;
 Outputs outputs;
 IrrigationController controller;
+SignatureVerifier verifier;
 WebService web;
 bool topologyOk = false;
 
@@ -33,6 +34,10 @@ void connectWifi() {
     return;
   }
   String hostname = doc["hostname"] | "growhub-irrigation";
+  // Optional installation secret: enables write-request signature checks
+  // (spec/signing.md). Empty = signing disabled.
+  verifier.begin(doc["apiSecret"] | "");
+  Serial.printf("[auth] Signierung %s\n", verifier.enabled() ? "aktiv" : "aus");
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(hostname.c_str());
   WiFi.setAutoReconnect(true);
@@ -63,7 +68,7 @@ void setup() {
   if (topologyOk) {
     outputs.begin(topology);
     controller.begin(&topology, &outputs);
-    web.begin(&topology, &controller);
+    web.begin(&topology, &controller, &verifier);
   }
 
   connectWifi();

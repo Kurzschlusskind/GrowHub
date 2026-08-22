@@ -8,7 +8,20 @@ const STATUS_PATH = {
   irrigation: "/api/irrigation/status",
 };
 
-export function startCollector({ devices, db, pollIntervalSeconds, retentionDays, log }) {
+// Numeric metrics extracted per device type so long ranges can be
+// aggregated in SQL (db.history with bucketMinutes).
+function extractMetrics(type, status) {
+  if (type === "lighting-rs485") {
+    return {
+      ch1: status.applied?.ch1 ?? null,
+      ch2: status.applied?.ch2 ?? null,
+      temperature: status.thermal?.sensorPresent ? status.thermal.temperatureC : null,
+    };
+  }
+  return {};
+}
+
+export function startCollector({ devices, db, pollIntervalSeconds, getRetentionDays, log }) {
   const state = new Map(devices.map((device) => [device.id, { online: false, lastSeenAt: 0 }]));
 
   async function fetchJson(endpoint, path) {
@@ -22,8 +35,7 @@ export function startCollector({ devices, db, pollIntervalSeconds, retentionDays
     if (!statusPath || !device.endpoint) return;
     try {
       const status = await fetchJson(device.endpoint, statusPath);
-      const now = Date.now();
-      db.insertSample(device.id, now, status);
+      db.insertSample(device.id, Date.now(), status, extractMetrics(device.type, status));
       if (device.type === "irrigation") {
         const history = await fetchJson(device.endpoint, "/api/irrigation/history");
         for (const event of history.events || []) {
@@ -39,13 +51,14 @@ export function startCollector({ devices, db, pollIntervalSeconds, retentionDays
 
   function markOnline(deviceId, online) {
     const entry = state.get(deviceId);
+    if (!entry) return;
     entry.online = online;
     if (online) entry.lastSeenAt = Date.now();
   }
 
   async function cycle() {
     for (const device of devices) await pollDevice(device);
-    db.prune(Date.now() - retentionDays * 86400000);
+    db.prune(Date.now() - getRetentionDays() * 86400000);
   }
 
   cycle();

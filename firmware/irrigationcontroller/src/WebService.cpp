@@ -18,13 +18,14 @@ void collectBody(AsyncWebServerRequest* request, uint8_t* data, size_t len,
 }
 }  // namespace
 
-void WebService::begin(Topology* topology, IrrigationController* controller) {
+void WebService::begin(Topology* topology, IrrigationController* controller, SignatureVerifier* verifier) {
   topology_ = topology;
   controller_ = controller;
+  verifier_ = verifier;
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type, X-GrowHub-Timestamp, X-GrowHub-Signature");
 
   server_.on("/api/irrigation/capabilities", HTTP_GET, [this](AsyncWebServerRequest* request) {
     sendJson(request, 200, topology_->capabilitiesJson());
@@ -47,6 +48,7 @@ void WebService::begin(Topology* topology, IrrigationController* controller) {
 
   server_.on("/api/irrigation/schedules", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
+      if (!writeAllowed(request, *bodyBuffer(request))) return;
       String error;
       if (!controller_->applySchedules(*bodyBuffer(request), error)) {
         sendError(request, 400, error);
@@ -57,6 +59,7 @@ void WebService::begin(Topology* topology, IrrigationController* controller) {
 
   server_.on("/api/irrigation/safety", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
+      if (!writeAllowed(request, *bodyBuffer(request))) return;
       String error;
       if (!controller_->applySafety(*bodyBuffer(request), error)) {
         sendError(request, 400, error);
@@ -67,6 +70,7 @@ void WebService::begin(Topology* topology, IrrigationController* controller) {
 
   server_.on("/api/irrigation/run", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
+      if (!writeAllowed(request, *bodyBuffer(request))) return;
       JsonDocument doc;
       if (deserializeJson(doc, *bodyBuffer(request))) {
         sendError(request, 400, "Ungültiges JSON");
@@ -86,6 +90,7 @@ void WebService::begin(Topology* topology, IrrigationController* controller) {
 
   server_.on("/api/irrigation/stop", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
+      if (!writeAllowed(request, *bodyBuffer(request))) return;
       JsonDocument doc;
       if (deserializeJson(doc, *bodyBuffer(request))) {
         sendError(request, 400, "Ungültiges JSON");
@@ -105,6 +110,17 @@ void WebService::begin(Topology* topology, IrrigationController* controller) {
   });
 
   server_.begin();
+}
+
+bool WebService::writeAllowed(AsyncWebServerRequest* request, const String& body) {
+  String error;
+  if (verifier_->verify("POST", request->url(), body,
+                        request->header("X-GrowHub-Timestamp"),
+                        request->header("X-GrowHub-Signature"), error)) {
+    return true;
+  }
+  sendError(request, 401, error);
+  return false;
 }
 
 void WebService::sendJson(AsyncWebServerRequest* request, int code, const String& body) {

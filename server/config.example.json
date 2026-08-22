@@ -1,7 +1,8 @@
 {
   "port": 8420,
   "pollIntervalSeconds": 300,
-  "retentionDays": 90,
+  "retentionDays": 365,
+  "apiSecret": "",
   "devices": [
     { "id": "lighting-main", "type": "lighting-rs485", "endpoint": "http://192.168.178.36" },
     { "id": "irrigation-1", "type": "irrigation", "endpoint": "http://192.168.178.37" }

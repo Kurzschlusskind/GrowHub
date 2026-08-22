@@ -194,7 +194,16 @@ next state read; retries with the same `runId`; backs off polling when the
 device is unreachable and shows the staleness of its data; and disables
 controls that require a live device instead of letting them fail silently.
 
-## 8. Roadmap (non-normative)
+## 8. Request signing (optional)
+
+When an installation secret is configured on the device, all write endpoints
+(`/run`, `/stop`, `/schedules`, `/safety` via POST) require a valid request
+signature per [signing.md](signing.md); unsigned or invalid writes are
+rejected with 401. Without a configured secret the device accepts unsigned
+writes (trusted-LAN default). Devices without a valid clock verify the
+signature but skip the replay-window check.
+
+## 9. Roadmap (non-normative)
 
 - Config versioning (`If-Match`/ETag) to detect concurrent edits from two
   clients.

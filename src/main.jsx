@@ -1,19 +1,39 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Flame, Leaf, Plus, Power, Save, Trash2 } from "lucide-react";
+import { Database, Flame, Leaf, Plus, Power, Save, Trash2 } from "lucide-react";
 import { deviceCatalog } from "./devices/catalog";
 import { Stat, useNow } from "./core/ui";
-import { parseTime, percent, timeLabel } from "./core/format";
+import { signRequest } from "./core/signing";
+import { agoLabel, durationLabel, parseTime, percent, timeLabel } from "./core/format";
 import "./styles/app.css";
 
 const params = new URLSearchParams(location.search);
 const initialView = ["dashboard", "schedule", "logs", "system"].includes(params.get("view")) ? params.get("view") : "dashboard";
 
-const devices = [
+// Direct mode: mock or explicit controller URLs via query parameters. When
+// the app is served by a GrowHub Server, the device list comes from its
+// registry instead (server mode, detected at boot).
+const directDevices = [
   { id: "lighting-main", type: "lighting-rs485", endpoint: params.get("lighting") || "" },
   { id: "irrigation-next", type: "irrigation", endpoint: params.get("irrigation") || "" },
   { id: "climate-next", type: "climate" },
 ].map((device) => ({ ...device, ...deviceCatalog[device.type] }));
+
+// Signed fetch against the GrowHub Server (spec/signing.md): write requests
+// carry an HMAC signature when an installation secret is stored.
+async function serverFetch(path, method = "GET", bodyObj = null) {
+  const body = bodyObj ? JSON.stringify(bodyObj) : "";
+  const headers = { "Content-Type": "application/json" };
+  const secret = localStorage.getItem("growhub.apiSecret");
+  if (secret && method !== "GET") {
+    const pathname = new URL(path, `${location.origin}/`).pathname;
+    Object.assign(headers, await signRequest(secret, method, pathname, body));
+  }
+  const response = await fetch(path, { method, headers, body: body || undefined });
+  const json = await response.json();
+  if (!response.ok) throw new Error(json.error || response.statusText);
+  return json;
+}
 
 const views = [
   { id: "dashboard", label: "Übersicht" },
@@ -76,12 +96,44 @@ function useElementSize() {
 
 function App() {
   const [view, setView] = useState(initialView);
+  const [server, setServer] = useState(null); // { info, devices } when served by a GrowHub Server
   const [deviceData, setDeviceData] = useState({});
   const [errors, setErrors] = useState({});
   const [notice, setNotice] = useState("");
   const [notifyEnabled, setNotifyEnabled] = useState(() => localStorage.getItem("growhub.notify") === "on");
   const noticeTimer = useRef(null);
   const prevThermalRef = useRef(null);
+
+  // Server detection: a same-origin GrowHub Server answers /api/server/info.
+  // On GitHub Pages or the Vite dev server this 404s -> direct mode.
+  useEffect(() => {
+    (async () => {
+      try {
+        const infoResponse = await fetch("api/server/info");
+        if (!infoResponse.ok || !(infoResponse.headers.get("content-type") || "").includes("json")) return;
+        const info = await infoResponse.json();
+        const devicesResponse = await fetch("api/server/devices");
+        const registry = (await devicesResponse.json()).devices || [];
+        setServer({ info, devices: registry });
+      } catch {
+        /* direct mode */
+      }
+    })();
+  }, []);
+
+  const serverMode = Boolean(server);
+  const devices = useMemo(() => {
+    if (!serverMode) return directDevices;
+    return server.devices
+      .filter((entry) => deviceCatalog[entry.type])
+      .map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        endpoint: `${location.origin}/api/devices/${entry.id}`,
+        ...deviceCatalog[entry.type],
+      }));
+  }, [server]);
+
   const adapters = useMemo(() => {
     const map = {};
     for (const device of devices) {
@@ -89,7 +141,7 @@ function App() {
       if (create) map[device.id] = create(device.endpoint || "");
     }
     return map;
-  }, []);
+  }, [devices]);
 
   function showNotice(message) {
     setNotice(message);
@@ -141,12 +193,13 @@ function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [adapters]);
 
   // Browser notification on every supervisor transition: takeover, each
   // escalation stage, and the all-clear.
   useEffect(() => {
-    const lighting = deviceData["lighting-main"];
+    const lightingDevice = devices.find((device) => device.type === "lighting-rs485");
+    const lighting = lightingDevice && deviceData[lightingDevice.id];
     if (!lighting) return;
     const thermal = lighting.status.thermal;
     const current = {
@@ -175,7 +228,7 @@ function App() {
         /* some platforms only allow notifications via a service worker */
       }
     }
-  }, [deviceData, notifyEnabled]);
+  }, [deviceData, notifyEnabled, devices]);
 
   async function toggleNotifications(enabled) {
     if (!enabled) {
@@ -204,9 +257,10 @@ function App() {
     }
   }
 
-  const lightingData = deviceData["lighting-main"];
+  const lightingDevice = devices.find((device) => device.type === "lighting-rs485");
+  const lightingData = lightingDevice && deviceData[lightingDevice.id];
   const firstError = devices.map((device) => errors[device.id]).find(Boolean);
-  const allMock = devices.every((device) => !adapters[device.id] || !device.endpoint);
+  const allMock = !serverMode && devices.every((device) => !adapters[device.id] || !device.endpoint);
 
   return (
     <div className="app">
@@ -218,7 +272,9 @@ function App() {
         </div>
         <div className="conn" title={firstError || undefined}>
           <span className={`conn-dot ${firstError ? "bad" : "ok"}`} />
-          <span>{firstError ? "Verbindung gestört" : allMock ? "Mock-Daten" : "verbunden"}</span>
+          <span>
+            {firstError ? "Verbindung gestört" : serverMode ? `Server · ${devices.length} Geräte` : allMock ? "Mock-Daten" : "verbunden"}
+          </span>
         </div>
       </header>
 
@@ -239,8 +295,18 @@ function App() {
             drill={lightingData.status.thermal.drill}
             config={lightingData.status.thermal.config}
             receivedAt={lightingData.receivedAt}
-            onAbort={() => runFor("lighting-main")(() => adapters["lighting-main"].stopThermalDrill(), "Abbrechen")}
+            onAbort={() => runFor(lightingDevice.id)(() => adapters[lightingDevice.id].stopThermalDrill(), "Abbrechen")}
           />
+        )}
+        {serverMode && view === "system" && (
+          <section className="device-section">
+            <div className="device-heading">
+              <Database size={15} />
+              <h2>Server</h2>
+              <span className="muted">growhub-server {server.info.version} · Signierung {server.info.signing ? "aktiv" : "aus"}</span>
+            </div>
+            <ServerSettingsPanel devices={devices} onNotice={showNotice} />
+          </section>
         )}
         {devices.map((device) => {
           const deviceAdapter = adapters[device.id];
@@ -264,6 +330,7 @@ function App() {
                 notifyEnabled={notifyEnabled}
                 onToggleNotify={toggleNotifications}
               />
+              {serverMode && view === "logs" && <ServerHistoryPanel device={device} />}
             </section>
           );
         })}
@@ -846,6 +913,244 @@ function ThermalDrillPanel({ drill, config, receivedAt, onAbort }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/* ---------- server mode: long-term history & settings ---------- */
+
+const historyRanges = [
+  { id: "24h", label: "24 h", ms: 86400000, bucketMinutes: 10 },
+  { id: "7d", label: "7 T", ms: 7 * 86400000, bucketMinutes: 60 },
+  { id: "30d", label: "30 T", ms: 30 * 86400000, bucketMinutes: 360 },
+  { id: "1y", label: "1 J", ms: 365 * 86400000, bucketMinutes: 1440 },
+  { id: "3y", label: "3 J", ms: 3 * 365 * 86400000, bucketMinutes: 4320 },
+];
+
+function ServerHistoryPanel({ device }) {
+  const [rangeId, setRangeId] = useState("7d");
+  const [history, setHistory] = useState(null);
+  const range = historyRanges.find((entry) => entry.id === rangeId);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistory(null);
+    serverFetch(`api/server/history/${device.id}?from=${Date.now() - range.ms}&bucketMinutes=${range.bucketMinutes}`)
+      .then((result) => {
+        if (!cancelled) setHistory(result);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory({ samples: [], runs: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [device.id, rangeId]);
+
+  const samples = (history?.samples || []).slice().reverse().filter((sample) => sample.ch1 !== null || sample.temperature !== null);
+  const runs = history?.runs || [];
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2 className="panel-title">Langzeit-Verlauf</h2>
+          <p className="panel-sub">Aus der Server-Datenbank — unabhängig vom Ringpuffer des Controllers</p>
+        </div>
+        <div className="segmented">
+          {historyRanges.map((entry) => (
+            <button key={entry.id} className={rangeId === entry.id ? "active" : ""} onClick={() => setRangeId(entry.id)}>
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="panel-body">
+        {!history && <p className="muted">Lade …</p>}
+        {history && device.type === "lighting-rs485" && (
+          samples.length > 1
+            ? <LongTermChart samples={samples} rangeMs={range.ms} />
+            : <p className="muted">Noch zu wenig aufgezeichnete Daten in diesem Zeitraum.</p>
+        )}
+        {history && device.type === "irrigation" && (
+          <div className="history">
+            <p className="muted">{runs.length} Läufe im Zeitraum</p>
+            {runs.slice(0, 30).map((event, index) => (
+              <div className="history-row" key={index}>
+                <span className="muted">{new Date(event.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                <strong>{event.valve}</strong>
+                <span>{durationLabel(event.durationSeconds)}</span>
+                <span className={`badge ${event.trigger === "thermal" ? "alert" : ""}`}>
+                  {event.trigger === "manual" ? "manuell" : event.trigger === "thermal" ? "Notkühlung" : "Zeitplan"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function LongTermChart({ samples, rangeMs }) {
+  const [wrapRef, size] = useElementSize();
+  const [hover, setHover] = useState(null);
+  const plot = { left: 44, top: 12, width: Math.max(0, size.w - 44 - 12), height: Math.max(0, size.h - 12 - 30) };
+  const minAt = samples[0].at;
+  const maxAt = samples.at(-1).at;
+  const span = Math.max(1, maxAt - minAt);
+  const xFor = (at) => plot.left + ((at - minAt) / span) * plot.width;
+  const yFor = (value) => plot.top + ((100 - Math.max(0, Math.min(100, value))) / 100) * plot.height;
+  const line = (key) => samples.filter((sample) => sample[key] !== null).map((sample) => `${xFor(sample.at)},${yFor(sample[key])}`).join(" ");
+  const tickCount = Math.max(2, Math.min(6, Math.floor(size.w / 150)));
+  const ticks = Array.from({ length: tickCount }, (_, index) => minAt + (span * index) / (tickCount - 1));
+  const tickLabel = (at) => new Date(at).toLocaleString("de-DE", rangeMs > 2 * 86400000
+    ? { day: "2-digit", month: "2-digit" }
+    : { hour: "2-digit", minute: "2-digit" });
+
+  function handleMove(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    let nearest = 0;
+    let best = Infinity;
+    samples.forEach((sample, index) => {
+      const distance = Math.abs(xFor(sample.at) - x);
+      if (distance < best) {
+        best = distance;
+        nearest = index;
+      }
+    });
+    setHover(nearest);
+  }
+
+  const hovered = hover === null ? null : samples[hover];
+
+  return (
+    <div className="chart logs-chart" ref={wrapRef}>
+      {size.w > 0 && (
+        <svg viewBox={`0 0 ${size.w} ${size.h}`} onPointerMove={handleMove} onPointerLeave={() => setHover(null)}>
+          {[0, 25, 50, 75, 100].map((value) => (
+            <g key={value}>
+              <line className="grid-line" x1={plot.left} x2={plot.left + plot.width} y1={yFor(value)} y2={yFor(value)} />
+              <text className="axis-label" x={plot.left - 8} y={yFor(value) + 4} textAnchor="end">{value}</text>
+            </g>
+          ))}
+          {ticks.map((at) => (
+            <g key={at}>
+              <line className="grid-line" x1={xFor(at)} x2={xFor(at)} y1={plot.top} y2={plot.top + plot.height} />
+              <text className="axis-label" x={xFor(at)} y={size.h - 8} textAnchor="middle">{tickLabel(at)}</text>
+            </g>
+          ))}
+          <polyline points={line("ch1")} fill="none" stroke={seriesColor.ch1} strokeWidth={2} strokeLinejoin="round" />
+          <polyline points={line("ch2")} fill="none" stroke={seriesColor.ch2} strokeWidth={2} strokeLinejoin="round" />
+          <polyline points={line("temperature")} fill="none" stroke="#e8a35c" strokeWidth={1.5} strokeDasharray="4 3" strokeLinejoin="round" />
+          {hovered && (
+            <line className="crosshair" x1={xFor(hovered.at)} x2={xFor(hovered.at)} y1={plot.top} y2={plot.top + plot.height} />
+          )}
+        </svg>
+      )}
+      {hovered && size.w > 0 && (
+        <div className="chart-tooltip" style={{ left: Math.min(size.w - 170, Math.max(0, xFor(hovered.at) + 10)), top: 10 }}>
+          <strong>{new Date(hovered.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</strong>
+          {hovered.ch1 !== null && <span><i className="chip ch1" /> CH1 {Math.round(hovered.ch1)}%</span>}
+          {hovered.ch2 !== null && <span><i className="chip ch2" /> CH2 {Math.round(hovered.ch2)}%</span>}
+          {hovered.temperature !== null && <span>Temp {hovered.temperature.toFixed(1)} °C</span>}
+        </div>
+      )}
+      <p className="chart-footnote muted">CH1/CH2 in %, Temperatur (gestrichelt) in °C auf derselben Skala</p>
+    </div>
+  );
+}
+
+function ServerSettingsPanel({ devices, onNotice }) {
+  const [retention, setRetention] = useState("");
+  const [deleteDevice, setDeleteDevice] = useState(devices[0]?.id || "");
+  const [deleteFrom, setDeleteFrom] = useState("");
+  const [deleteTo, setDeleteTo] = useState("");
+  const [secret, setSecret] = useState(() => localStorage.getItem("growhub.apiSecret") || "");
+
+  useEffect(() => {
+    serverFetch("api/server/settings")
+      .then((settings) => setRetention(String(settings.retentionDays)))
+      .catch(() => {});
+  }, []);
+
+  async function saveRetention() {
+    try {
+      const settings = await serverFetch("api/server/settings", "POST", { retentionDays: Number(retention) });
+      onNotice(`Aufbewahrung gespeichert: ${settings.retentionDays} Tage`);
+    } catch (err) {
+      onNotice(`Speichern fehlgeschlagen: ${err.message}`);
+    }
+  }
+
+  async function deleteRange() {
+    const from = new Date(deleteFrom).getTime();
+    const to = new Date(deleteTo).getTime();
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
+      onNotice("Löschen: gültigen Zeitraum (von < bis) angeben");
+      return;
+    }
+    const device = devices.find((entry) => entry.id === deleteDevice);
+    if (!window.confirm(`Historie von „${device?.label || deleteDevice}" zwischen ${new Date(from).toLocaleString("de-DE")} und ${new Date(to).toLocaleString("de-DE")} unwiderruflich löschen?`)) return;
+    try {
+      const result = await serverFetch(`api/server/history/${deleteDevice}?from=${from}&to=${to}`, "DELETE");
+      onNotice(`Gelöscht: ${result.deletedSamples} Samples, ${result.deletedRuns} Läufe`);
+    } catch (err) {
+      onNotice(`Löschen fehlgeschlagen: ${err.message}`);
+    }
+  }
+
+  function saveSecret() {
+    if (secret) {
+      localStorage.setItem("growhub.apiSecret", secret);
+      onNotice("Installations-Secret gespeichert — Schreibzugriffe werden signiert");
+    } else {
+      localStorage.removeItem("growhub.apiSecret");
+      onNotice("Installations-Secret entfernt");
+    }
+  }
+
+  return (
+    <div className="system-grid">
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Datenbank</h2>
+            <p className="panel-sub">Aufbewahrung steuert das automatische Aufräumen; Zeiträume lassen sich gezielt löschen</p>
+          </div>
+        </div>
+        <div className="panel-body">
+          <div className="form-grid">
+            <label>Aufbewahrung (Tage)<input type="number" min={1} max={1200} value={retention} onChange={(e) => setRetention(e.target.value)} /></label>
+            <label className="switch"><button className="primary" onClick={saveRetention}><Save size={14} /> Speichern</button></label>
+          </div>
+          <div className="form-grid delete-grid">
+            <label>Gerät
+              <select value={deleteDevice} onChange={(e) => setDeleteDevice(e.target.value)}>
+                {devices.map((device) => (
+                  <option key={device.id} value={device.id}>{device.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>Von<input type="datetime-local" value={deleteFrom} onChange={(e) => setDeleteFrom(e.target.value)} /></label>
+            <label>Bis<input type="datetime-local" value={deleteTo} onChange={(e) => setDeleteTo(e.target.value)} /></label>
+            <label className="switch"><button className="danger" onClick={deleteRange}><Trash2 size={14} /> Zeitraum löschen</button></label>
+          </div>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Signierung</h2>
+            <p className="panel-sub">Installations-Secret — signiert alle Schreibzugriffe (HMAC-SHA256, spec/signing.md)</p>
+          </div>
+        </div>
+        <div className="panel-body form-grid">
+          <label>Installations-Secret<input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="wie in server/config.json" /></label>
+          <label className="switch"><button className="primary" onClick={saveSecret}><Save size={14} /> Übernehmen</button></label>
+        </div>
+      </section>
+    </div>
   );
 }
 

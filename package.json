@@ -11,7 +11,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/contract.test.mjs"
+    "test": "node --test tests/contract.test.mjs tests/signing.test.mjs tests/server.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
