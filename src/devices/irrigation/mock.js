@@ -1,4 +1,4 @@
-import { DRILL_FLUSH_SECONDS, thermalDrillSnapshot } from "../../core/mock";
+import { DRILL_FLUSH_SECONDS, thermalDrillSnapshot } from "../../core/mock.js";
 
 // Reference implementation of spec/irrigation-controller.md. Self-contained:
 // everything irrigation lives inside this device module.
