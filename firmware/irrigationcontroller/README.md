@@ -1,48 +1,52 @@
 # GrowHub Irrigation Controller (ESP32)
 
-PlatformIO-Firmware, die [spec/irrigation-controller.md](../../spec/irrigation-controller.md)
-implementiert. Ventile und Pumpen sind **variabel**: Die Topologie kommt
-komplett aus `data/topology.json` — die Firmware meldet sie über
-`/api/irrigation/capabilities`, GrowHub rendert, was gemeldet wird. Spannung
-(12 V / 24 V) ist Sache der Treiberstufe; die Firmware schaltet GPIOs
-(`activeLow` pro Bauteil konfigurierbar, Standard: Relais-Board = active-low).
+PlatformIO firmware implementing
+[spec/irrigation-controller.md](../../spec/irrigation-controller.md). Valves
+and pumps are **variable**: the entire topology lives in
+`data/topology.json` — the firmware announces it via
+`/api/irrigation/capabilities`, and GrowHub renders whatever is reported.
+Supply voltage (12 V / 24 V) is the driver stage's business; the firmware
+switches GPIOs (`activeLow` configurable per component, default: relay
+board = active-low).
 
-## Verhalten (Kurzfassung der Spec)
+## Behaviour (spec in short)
 
-- **Fail-safe:** Nach jedem Boot/Reset sind alle Ausgänge aus, bevor
-  irgendetwas anderes läuft. Hardware-Watchdog (10 s) rebootet bei Hängern.
-- **Eine Pumpe = ein offenes Ventil.** Läufe haben eine harte
-  Firmware-Deadline (`maxRunSeconds`), unabhängig von App/WLAN.
-- **Sperrzeit** pro Bewässerungsventil (Drainage ausgenommen).
-- **Zeitpläne laufen on-device** (NTP); ohne gültige Uhrzeit pausiert.
-- **Idempotente Starts** über `runId`, Config-Schreibvorgänge atomar
-  (temp + rename), Historie (letzte 30 Läufe) persistent.
-- Reihenfolge beim Schalten: Ventil auf → Pumpe an; Pumpe aus → Ventil zu.
+- **Fail-safe:** after every boot/reset all outputs are off before anything
+  else runs. Hardware watchdog (10 s) reboots on hangs.
+- **One pump = one open valve.** Runs have a hard firmware deadline
+  (`maxRunSeconds`), independent of app and Wi-Fi.
+- **Lockout** per irrigation valve (drain valves exempt).
+- **Schedules run on-device** (NTP); suspended without a valid clock.
+- **Idempotent starts** via `runId`; config writes are atomic
+  (temp + rename); history (last 30 runs) is persistent.
+- Write endpoints verify request signatures when an `apiSecret` is
+  configured ([spec/signing.md](../../spec/signing.md)).
+- Switching order: valve open → pump on; pump off → valve closed.
 
-## Einrichtung
+## Setup
 
-1. `data/topology.json` an die eigene Anlage anpassen (IDs, Namen, Pins,
-   `activeLow`).
-2. `data/wifi.example.json` nach `data/wifi.json` kopieren und ausfüllen
-   (wird nicht committet).
-3. Dateisystem und Firmware flashen:
+1. Adapt `data/topology.json` to your rig (ids, names, pins, `activeLow`).
+2. Copy `data/wifi.example.json` to `data/wifi.json` and fill it in
+   (not committed).
+3. Flash filesystem and firmware:
 
 ```text
 pio run -t uploadfs
 pio run -t upload
 ```
 
-4. In GrowHub verbinden: `?irrigation=http://<ip-des-esp32>`
+4. Connect in GrowHub: `?irrigation=http://<esp32-ip>` — or as a registry
+   entry in the server config.
 
-## Standard-Pinbelegung (topology.json)
+## Default pin mapping (topology.json)
 
-| Bauteil | Pin |
+| Component | Pin |
 |---|---|
-| Pumpe p1 | 26 |
-| Ventil v1–v5 | 16, 17, 18, 19, 21 |
-| Drainage d1 | 22 |
+| Pump p1 | 26 |
+| Valves v1–v5 | 16, 17, 18, 19, 21 |
+| Drain d1 | 22 |
 
-## Lizenz
+## License
 
-[PolyForm Strict 1.0.0](../../LICENSE) — nichtkommerzielle Nutzung erlaubt,
-keine kommerzielle Nutzung, keine Weiterverbreitung, keine abgeleiteten Werke.
+[PolyForm Strict 1.0.0](../../LICENSE) — noncommercial use permitted; no
+commercial use, no distribution, no derivative works.

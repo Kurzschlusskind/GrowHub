@@ -1,37 +1,40 @@
-# Greenception RS-485 Ersatz-Controller
+# Greenception RS-485 Replacement Controller
 
-> **Interoperabilitäts-Hinweis:** Dieses Projekt implementiert Teile eines
-> proprietären RS-485-Protokolls, die ausschließlich zu
-> Interoperabilitätszwecken per Reverse Engineering analysiert wurden. Es
-> besteht keine Verbindung zu Greenception; „Greenception" und alle weiteren
-> genannten Produkt- und Herstellernamen sind Marken ihrer jeweiligen
-> Inhaber. Details in der [LICENSE](LICENSE).
+> **Interoperability notice:** This project implements parts of a
+> proprietary RS-485 protocol that were analyzed by reverse engineering
+> solely for interoperability purposes. This project is not affiliated with
+> Greenception; "Greenception" and all other product and manufacturer names
+> are trademarks of their respective owners. Details in the
+> [LICENSE](LICENSE).
 
-Vollständiges PlatformIO-Projekt für einen ESP32 (Arduino-Framework), das als Ersatz-Controller für Greenception-Growlights dient. Es stellt eine Web-UI zur Verfügung, snifft und sendet proprietäre RS-485-Frames und bietet eine editierbare Kalibrier-Mapping-Tabelle.
+Complete PlatformIO project for an ESP32 (Arduino framework) acting as a
+replacement controller for Greenception grow lights. It provides a web UI,
+sniffs and sends the proprietary RS-485 frames, and offers an editable
+calibration mapping table.
 
-## Funktionsüberblick
+## Feature overview
 
-- AsyncWebServer + WebSocket Dashboard (Kanäle, Presets, Mapping, Log/Sniffer).
-- Mapping-Komponente mit Stückweise-Interpolation und Identity-Mode (0..100 % → 0..255).
-- Periodischer Heartbeat mit konfigurierbarem Intervall, optionaler Dry-Run (Listen-only standard).
-- Proprietäres Frame-Format (`F1 E2 ... SUM F3`) inkl. Kurzformen (Header optional, weniger Kanäle).
-- RS-485 MAX485-Ansteuerung über UART2 (TX2/RX2 + DE/RE-Pin) mit sicherem Richtungsschalten.
-- Presets, Mapping und Log-Rotation (letzte 1000 Einträge) in LittleFS gespeichert.
-- REST-API (Status, Set, Preset, Mapping) + WebSocket-Echtzeitereignisse.
-- Umfangreiche Dokumentation, Tests und Beispiele.
+- AsyncWebServer + WebSocket dashboard (channels, presets, mapping, log/sniffer)
+- Mapping component with piecewise interpolation and identity mode (0..100 % → 0..255)
+- Periodic heartbeat with configurable interval, optional dry run (listen-only by default)
+- Proprietary frame format (`F1 E2 ... SUM F3`) including short forms (optional header, fewer channels)
+- RS-485 MAX485 driving via UART2 (TX2/RX2 + DE/RE pin) with safe direction switching
+- Presets, mapping and log rotation (last 1000 entries) persisted in LittleFS
+- REST API (status, set, preset, mapping) + WebSocket real-time events
+- Extensive documentation, tests and examples
 
-## Hardware / Verdrahtung
+## Hardware / wiring
 
-| ESP32 Pin | MAX485 | Beschreibung |
-|-----------|--------|--------------|
-| 17 (TX2)  | DI     | UART2 TX → RS-485 Send |
-| 16 (RX2)  | RO     | UART2 RX ← RS-485 Receive |
-| 4         | DE & RE| Direction Enable (gemeinsam, HIGH = senden) |
-| 3V3       | VCC    | Versorgung MAX485 |
-| GND       | GND    | Masse |
-| A / B     | RS-485 | Busleitungen (differenziell) |
+| ESP32 pin | MAX485 | Description |
+|-----------|--------|-------------|
+| 17 (TX2)  | DI     | UART2 TX → RS-485 send |
+| 16 (RX2)  | RO     | UART2 RX ← RS-485 receive |
+| 4         | DE & RE| Direction enable (shared, HIGH = transmit) |
+| 3V3       | VCC    | MAX485 supply |
+| GND       | GND    | Ground |
+| A / B     | RS-485 | Bus lines (differential) |
 
-ASCII-Schaltskizze:
+ASCII wiring sketch:
 
 ```
         ESP32 (esp32dev)                      MAX485
@@ -41,57 +44,59 @@ ASCII-Schaltskizze:
   TX2 ──┤IO17       IO16├── RX2         │DI         RO ├─┘
   RX2 ──┤               │               │              │
   DE ───┤IO4            │──────────────►│DE         /RE├─┐
-  RE ───┤IO4 (gemeinsam)│───────────────┤              │ │
+  RE ───┤IO4 (shared)   │───────────────┤              │ │
         │               │               │      A   B   │ │RS-485
-        └───────────────┘               └──────┬───┬───┘ │Bus
+        └───────────────┘               └──────┬───┬───┘ │bus
                                                │   │     │
                                                └───┴─────┘
 ```
 
-> **Hinweis:** DE und /RE sind gekoppelt (gleicher Pin). LOW = Empfangen, HIGH = Senden. Die Software hält den Pin standardmäßig LOW (Listen-only).
+> **Note:** DE and /RE are coupled (same pin). LOW = receive, HIGH =
+> transmit. The firmware keeps the pin LOW by default (listen-only).
 
-## Firmware-Build & Flash
+## Build & flash
 
-1. Abhängigkeiten installieren (PlatformIO Core).
-2. Projekt klonen oder entpacken.
-3. WLAN-Zugangsdaten in `src/main.cpp` (`WIFI_SSID`/`WIFI_PASSWORD`) anpassen oder offen lassen, um in den AP-Fallback zu wechseln.
-4. LittleFS Web-Assets hochladen:
+1. Install dependencies (PlatformIO Core).
+2. Clone or unpack the project.
+3. Adjust the Wi-Fi credentials in `src/main.cpp` (`WIFI_SSID`/`WIFI_PASSWORD`)
+   or leave them empty to fall back to AP mode.
+4. Upload the LittleFS web assets:
    ```bash
    pio run -t uploadfs
    ```
-5. Firmware flashen:
+5. Flash the firmware:
    ```bash
    pio run -t upload
    ```
-6. Serielle Konsole (optional):
+6. Serial console (optional):
    ```bash
    pio device monitor
    ```
 
-Standard-Baudrate RS-485: `9600 baud`, Format `8N1`.
+Default RS-485 baud rate: `9600`, format `8N1`.
 
-## Projektstruktur
+## Project structure
 
 ```
-├── include/        # Header mit Klassen (Frame, Parser, Mapping, RS485, WebServer)
-├── src/            # Implementierungen + main.cpp
-├── data/           # Web-UI (LittleFS)
-├── test/           # Unit-Tests (Unity)
-├── docs/           # Zusatzdokumentation (USAGE.md, TESTS.md, BOM.md)
+├── include/        # Headers (Frame, Parser, Mapping, RS485, WebServer)
+├── src/            # Implementations + main.cpp
+├── data/           # Web UI (LittleFS)
+├── test/           # Unit tests (Unity)
+├── docs/           # Additional documentation (USAGE.md, TESTS.md, BOM.md)
 ├── README.md
 └── platformio.ini
 ```
 
-Weitere Details siehe [docs/USAGE.md](docs/USAGE.md), [docs/BOM.md](docs/BOM.md) und [docs/TESTS.md](docs/TESTS.md).
+See [docs/USAGE.md](docs/USAGE.md), [docs/BOM.md](docs/BOM.md) and
+[docs/TESTS.md](docs/TESTS.md) for details.
 
+## License
 
-## Lizenz
+[PolyForm Strict 1.0.0](LICENSE) — noncommercial use (including privately at
+home) permitted; no commercial use, no distribution, no derivative works.
+Full text in the repository root LICENSE.
 
-[PolyForm Strict 1.0.0](LICENSE) — nichtkommerzielle Nutzung (auch privat
-zu Hause) erlaubt; keine kommerzielle Nutzung, keine Weiterverbreitung, keine
-abgeleiteten Werke. Volltext in der LICENSE im Repository-Root.
-
-Das implementierte RS-485-Protokoll wurde ausschließlich zu
-Interoperabilitätszwecken per Reverse Engineering analysiert. Alle genannten
-Produkt- und Herstellernamen sind Marken ihrer jeweiligen Inhaber; dieses
-Projekt steht in keiner Verbindung zu ihnen.
+The implemented RS-485 protocol was analyzed by reverse engineering solely
+for interoperability purposes. All product and manufacturer names mentioned
+are trademarks of their respective owners; this project is not affiliated
+with them.
