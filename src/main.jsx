@@ -15,6 +15,10 @@ const devices = [
   { id: "climate-next", type: "climate" },
 ].map((device) => ({ ...device, ...deviceCatalog[device.type] }));
 
+// Deep link to a device: ?device=irrigation (matches the catalog type or its
+// leading word, e.g. "lighting").
+const initialDeviceId = (devices.find((device) => device.type.startsWith(params.get("device") || "")) || devices[0]).id;
+
 const views = [
   { id: "dashboard", label: "Übersicht" },
   { id: "schedule", label: "Zeitplan" },
@@ -47,7 +51,7 @@ function useElementSize() {
 
 function App() {
   const [view, setView] = useState(initialView);
-  const [activeDeviceId, setActiveDeviceId] = useState("lighting-main");
+  const [activeDeviceId, setActiveDeviceId] = useState(initialDeviceId);
   const [deviceData, setDeviceData] = useState({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
