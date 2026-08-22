@@ -1,7 +1,9 @@
-import { Droplets, Fan, Lightbulb } from "lucide-react";
+import { Droplets, Fan, Lightbulb, Thermometer } from "lucide-react";
 import { createLightingAdapter } from "./lighting/adapter";
 import { createIrrigationAdapter } from "./irrigation/adapter";
 import { irrigationViews } from "./irrigation/views";
+import { createSensorsAdapter } from "./sensors/adapter";
+import { sensorViews } from "./sensors/views";
 
 // Device registry: one entry per controller type. A device module is
 // self-contained (adapter + mock + views); a type without a createAdapter is
@@ -21,6 +23,13 @@ export const deviceCatalog = {
     icon: Droplets,
     createAdapter: createIrrigationAdapter,
     views: irrigationViews,
+  },
+  sensors: {
+    label: "Sensorik",
+    detail: "Mock — Hardware folgt",
+    icon: Thermometer,
+    createAdapter: createSensorsAdapter,
+    views: sensorViews,
   },
   climate: {
     label: "Klima",

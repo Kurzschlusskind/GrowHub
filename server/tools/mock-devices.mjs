@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 
 import { mockLightingRequest } from "../../src/core/mock.js";
 import { mockIrrigationRequest } from "../../src/devices/irrigation/mock.js";
+import { mockSensorsRequest } from "../../src/devices/sensors/mock.js";
 import { verifySignature } from "../src/signing.mjs";
 
 // Dev tool: exposes the reference mocks as real HTTP devices so the GrowHub
@@ -44,3 +45,4 @@ function serve(port, name, handler) {
 
 serve(9101, "lighting", mockLightingRequest);
 serve(9102, "irrigation", mockIrrigationRequest);
+serve(9103, "sensors", mockSensorsRequest);

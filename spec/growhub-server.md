@@ -1,4 +1,4 @@
-# GrowHub Server — Specification 0.2.0 (draft)
+# GrowHub Server — Specification 0.3.0 (draft)
 
 The GrowHub Server is the persistence and orchestration layer of a GrowHub
 installation. It runs on a PC, home server or Raspberry Pi, talks to the
@@ -39,9 +39,36 @@ UI only                   registry · proxy · collector             physical tr
 - **Phase 2 (this document):** SPA server mode (auto-detect, registry-driven
   adapters, long-term history views), user-controlled retention and range
   deletion, request signing ([signing.md](signing.md)).
-- **Phase 3:** server-side notifications; cross-device orchestration — the
-  thermal supervisor's escalation chain (fan, drain, root flush) executed by
-  the server against real controllers; automation rules.
+- **Phase 3 (this document):** alarm engine over sensor devices
+  ([sensor-controller.md](sensor-controller.md)) with user-defined threshold
+  rules, host signal outputs (beacon/piezo via GPIO), the supervisor
+  escalation chain executed against real controllers, sensor config
+  mirroring, and an event log.
+- **Phase 4:** server-side push notifications; free-form automation rules.
+
+## Alarms & escalation (Phase 3)
+
+Sensor devices are pure slaves; detection happens here. Threshold rules
+(`GET/POST /api/server/alarm-rules`, signed write) reference a sensor device
+and sensor id with `min`/`max` bounds and an `escalate` flag. The engine
+evaluates the latest readings each collector cycle:
+
+- Breach → alarm raised (`GET /api/server/alarms`), event logged, signal
+  outputs on (light steady, sound beeping; `config.signalOutputs` with
+  drivers `pinctrl`/`gpioset`/`none`).
+- `escalate` → the supervisor chain runs step by step, spaced by the
+  `escalationSeconds` setting: **1** dim lighting to its override limit,
+  **2** exhaust to 100 % (skipped and logged while no climate controller is
+  registered), **3** drain, **4** root flush — steps 3/4 as signed runs
+  against the irrigation controller. A failed step (e.g. pump busy) is
+  retried on the next interval. Recovery clears alarms and signals.
+- All transitions land in the event log (`GET /api/server/events`).
+- The alarm/rule config is mirrored to sensor devices as a hash
+  (spec sensor-controller §3); a mismatch raises a system alarm.
+
+`GET/POST /api/server/settings` additionally carries `escalationSeconds`
+(10–3600, default 120). Sensor readings are persisted per sensor and served
+bucketed via the history endpoint (`sensorSeries`).
 
 ## Configuration
 

@@ -85,7 +85,7 @@ test("server: settings validation", async () => {
 
 test("server: history read and signed range delete", async () => {
   const history = await (await fetch(`${BASE}/api/server/history/irrigation-test`)).json();
-  assert.deepEqual(history, { samples: [], runs: [] });
+  assert.deepEqual(history, { samples: [], runs: [], sensorSeries: {} });
 
   const unsigned = await fetch(`${BASE}/api/server/history/irrigation-test?from=0&to=1`, { method: "DELETE" });
   assert.equal(unsigned.status, 401);
@@ -95,6 +95,30 @@ test("server: history read and signed range delete", async () => {
   const result = await response.json();
   assert.equal(result.deletedSamples, 0);
   assert.equal(result.deletedRuns, 0);
+});
+
+test("server: alarm rules CRUD (signed) and alarms/events endpoints", async () => {
+  const unsigned = await fetch(`${BASE}/api/server/alarm-rules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rules: [] }),
+  });
+  assert.equal(unsigned.status, 401);
+
+  const rules = [{ id: "r1", deviceId: "sensors-x", sensorId: "s1", label: "Temp", min: null, max: 30, escalate: true }];
+  const saved = await signed("/api/server/alarm-rules", "POST", { rules });
+  assert.equal(saved.status, 200);
+  const readBack = await (await fetch(`${BASE}/api/server/alarm-rules`)).json();
+  assert.equal(readBack.rules.length, 1);
+  assert.equal(readBack.rules[0].max, 30);
+  assert.equal(readBack.rules[0].escalate, true);
+
+  const alarms = await (await fetch(`${BASE}/api/server/alarms`)).json();
+  assert.ok(Array.isArray(alarms.alarms));
+  assert.ok(alarms.signals.driver);
+
+  const events = await (await fetch(`${BASE}/api/server/events`)).json();
+  assert.ok(events.events.some((event) => event.type === "rules"));
 });
 
 test("server: proxy to unreachable device responds 502", async () => {

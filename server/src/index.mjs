@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { openDb } from "./db.mjs";
 import { startCollector } from "./collector.mjs";
+import { createAlarmEngine } from "./alarms.mjs";
+import { createSignals } from "./signals.mjs";
 import { signHeaders, verifySignature } from "./signing.mjs";
 
 // GrowHub Server — spec/growhub-server.md: device registry, transparent
@@ -30,12 +32,22 @@ const startedAt = Date.now();
 const db = openDb(process.env.GROWHUB_DB || join(serverDir, "growhub.db"));
 const retentionDays = () => db.getSetting("retentionDays", config.retentionDays ?? 365);
 
+const signals = createSignals(config.signalOutputs, console.log);
+const alarmEngine = createAlarmEngine({ devices, db, apiSecret: config.apiSecret || "", signals, log: console.log });
+
 const collector = startCollector({
   devices,
   db,
   pollIntervalSeconds: config.pollIntervalSeconds ?? 300,
   getRetentionDays: retentionDays,
   log: console.log,
+  async onCycle(latestReadings) {
+    alarmEngine.evaluate(latestReadings);
+    await alarmEngine.runEscalations();
+    for (const device of devices) {
+      if (device.type === "sensors") await alarmEngine.syncMirror(device);
+    }
+  },
 });
 
 const MIME = {
@@ -173,14 +185,62 @@ const server = createServer(async (req, res) => {
         sendJson(res, 400, { error: "Ungültiges JSON" });
         return;
       }
-      const days = Number(parsed.retentionDays);
-      if (!Number.isFinite(days) || days < 1 || days > 1200) {
-        sendJson(res, 400, { error: "retentionDays muss zwischen 1 und 1200 liegen" });
+      if (parsed.retentionDays !== undefined) {
+        const days = Number(parsed.retentionDays);
+        if (!Number.isFinite(days) || days < 1 || days > 1200) {
+          sendJson(res, 400, { error: "retentionDays muss zwischen 1 und 1200 liegen" });
+          return;
+        }
+        db.setSetting("retentionDays", Math.round(days));
+      }
+      if (parsed.escalationSeconds !== undefined) {
+        const seconds = Number(parsed.escalationSeconds);
+        if (!Number.isFinite(seconds) || seconds < 10 || seconds > 3600) {
+          sendJson(res, 400, { error: "escalationSeconds muss zwischen 10 und 3600 liegen" });
+          return;
+        }
+        db.setSetting("escalationSeconds", Math.round(seconds));
+      }
+    }
+    sendJson(res, 200, {
+      retentionDays: retentionDays(),
+      escalationSeconds: db.getSetting("escalationSeconds", 120),
+    });
+    return;
+  }
+  if (pathname === "/api/server/alarms") {
+    sendJson(res, 200, { alarms: alarmEngine.activeAlarms(), signals: signals.status() });
+    return;
+  }
+  if (pathname === "/api/server/events") {
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 500);
+    sendJson(res, 200, { events: db.recentEvents(limit) });
+    return;
+  }
+  if (pathname === "/api/server/alarm-rules") {
+    if (req.method === "POST") {
+      const bodyText = (await readBody(req)).toString("utf8");
+      if (!checkWriteSignature(req, res, pathname, bodyText)) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(bodyText);
+      } catch {
+        sendJson(res, 400, { error: "Ungültiges JSON" });
         return;
       }
-      db.setSetting("retentionDays", Math.round(days));
+      const rules = (parsed.rules || []).map((rule, index) => ({
+        id: String(rule.id || `rule-${index + 1}`),
+        deviceId: String(rule.deviceId || ""),
+        sensorId: String(rule.sensorId || ""),
+        label: rule.label ? String(rule.label) : "",
+        min: rule.min === null || rule.min === undefined || rule.min === "" ? null : Number(rule.min),
+        max: rule.max === null || rule.max === undefined || rule.max === "" ? null : Number(rule.max),
+        escalate: Boolean(rule.escalate),
+      })).filter((rule) => rule.deviceId && rule.sensorId && (rule.min !== null || rule.max !== null));
+      db.setSetting("alarmRules", rules);
+      db.logEvent("rules", null, `Alarm-Regeln aktualisiert (${rules.length})`);
     }
-    sendJson(res, 200, { retentionDays: retentionDays() });
+    sendJson(res, 200, { rules: db.getSetting("alarmRules", []) });
     return;
   }
   const historyMatch = pathname.match(/^\/api\/server\/history\/([^/]+)$/);
@@ -202,7 +262,9 @@ const server = createServer(async (req, res) => {
     const to = Number(url.searchParams.get("to") ?? Date.now());
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 2000), 20000);
     const bucketMinutes = Number(url.searchParams.get("bucketMinutes") ?? 0);
-    sendJson(res, 200, db.history(deviceId, from, to, limit, bucketMinutes));
+    const result = db.history(deviceId, from, to, limit, bucketMinutes);
+    result.sensorSeries = db.sensorSeries(deviceId, from, to, bucketMinutes || 10);
+    sendJson(res, 200, result);
     return;
   }
   const proxyMatch = pathname.match(/^\/api\/devices\/([^/]+)(\/.*)$/);

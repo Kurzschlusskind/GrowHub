@@ -1,0 +1,7 @@
+{
+  "sensors": [
+    { "id": "s1", "quantity": "temperature", "unit": "°C", "name": "Zelt oben", "provider": "demo" },
+    { "id": "s2", "quantity": "humidity", "unit": "%", "name": "Zelt oben", "provider": "demo" },
+    { "id": "s3", "quantity": "co2", "unit": "ppm", "name": "Abluft", "provider": "demo" }
+  ]
+}

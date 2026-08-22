@@ -1,0 +1,6 @@
+{
+  "ssid": "YourNetwork",
+  "password": "YourPassword",
+  "hostname": "growhub-sensors",
+  "apiSecret": ""
+}

@@ -112,6 +112,38 @@ button:disabled {
   padding: 8px 12px;
 }
 
+.alarm-banner {
+  border: 1px solid var(--bad);
+  border-radius: var(--radius);
+  background: rgba(242, 73, 92, 0.14);
+  color: #ffd8dd;
+  padding: 10px 14px;
+  display: grid;
+  gap: 4px;
+}
+
+.alarm-banner strong {
+  color: var(--bad);
+}
+
+.mini-chart {
+  height: 150px;
+  margin-bottom: 14px;
+}
+
+.sensor-series .muted {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.rule-row {
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.4fr) 80px 80px auto 30px;
+}
+
+.event-row {
+  grid-template-columns: 90px auto 1fr;
+}
+
 input,
 select {
   min-width: 0;

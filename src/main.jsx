@@ -16,6 +16,7 @@ const initialView = ["dashboard", "schedule", "logs", "system"].includes(params.
 const directDevices = [
   { id: "lighting-main", type: "lighting-rs485", endpoint: params.get("lighting") || "" },
   { id: "irrigation-next", type: "irrigation", endpoint: params.get("irrigation") || "" },
+  { id: "sensors-next", type: "sensors", endpoint: params.get("sensors") || "" },
   { id: "climate-next", type: "climate" },
 ].map((device) => ({ ...device, ...deviceCatalog[device.type] }));
 
@@ -122,6 +123,28 @@ function App() {
   }, []);
 
   const serverMode = Boolean(server);
+  const [alarms, setAlarms] = useState([]);
+
+  // Server alarms: polled alongside the device data so the red banner and
+  // the signal-output state stay current on every view.
+  useEffect(() => {
+    if (!serverMode) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const result = await serverFetch("api/server/alarms");
+        if (!cancelled) setAlarms(result.alarms || []);
+      } catch {
+        /* server poll errors already surface elsewhere */
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [serverMode]);
   const devices = useMemo(() => {
     if (!serverMode) return directDevices;
     return server.devices
@@ -289,6 +312,14 @@ function App() {
       </div>
 
       <main className="content">
+        {alarms.length > 0 && (
+          <div className="alarm-banner" role="alert">
+            <strong>⚠ Alarm aktiv</strong>
+            {alarms.map((alarm) => (
+              <span key={alarm.ruleId}>{alarm.message}</span>
+            ))}
+          </div>
+        )}
         {notice && <div className="notice" role="alert">{notice}</div>}
         {lightingData?.status.thermal.drill?.active && (
           <ThermalDrillPanel
@@ -305,7 +336,7 @@ function App() {
               <h2>Server</h2>
               <span className="muted">growhub-server {server.info.version} · Signierung {server.info.signing ? "aktiv" : "aus"}</span>
             </div>
-            <ServerSettingsPanel devices={devices} onNotice={showNotice} />
+            <ServerSettingsPanel devices={devices} deviceData={deviceData} onNotice={showNotice} />
           </section>
         )}
         {devices.map((device) => {
@@ -330,7 +361,7 @@ function App() {
                 notifyEnabled={notifyEnabled}
                 onToggleNotify={toggleNotifications}
               />
-              {serverMode && view === "logs" && <ServerHistoryPanel device={device} />}
+              {serverMode && view === "logs" && <ServerHistoryPanel device={device} data={data} />}
             </section>
           );
         })}
@@ -926,7 +957,7 @@ const historyRanges = [
   { id: "3y", label: "3 J", ms: 3 * 365 * 86400000, bucketMinutes: 4320 },
 ];
 
-function ServerHistoryPanel({ device }) {
+function ServerHistoryPanel({ device, data }) {
   const [rangeId, setRangeId] = useState("7d");
   const [history, setHistory] = useState(null);
   const range = historyRanges.find((entry) => entry.id === rangeId);
@@ -969,6 +1000,20 @@ function ServerHistoryPanel({ device }) {
         {history && device.type === "lighting-rs485" && (
           samples.length > 1
             ? <LongTermChart samples={samples} rangeMs={range.ms} />
+            : <p className="muted">Noch zu wenig aufgezeichnete Daten in diesem Zeitraum.</p>
+        )}
+        {history && device.type === "sensors" && (
+          Object.keys(history.sensorSeries || {}).length > 0
+            ? (data?.capabilities.sensors || []).map((sensor) => {
+                const points = history.sensorSeries?.[sensor.id] || [];
+                if (points.length < 2) return null;
+                return (
+                  <div key={sensor.id} className="sensor-series">
+                    <p className="muted">{sensor.name || sensor.id} · {sensor.quantity} ({sensor.unit})</p>
+                    <MiniSeriesChart points={points} rangeMs={range.ms} />
+                  </div>
+                );
+              })
             : <p className="muted">Noch zu wenig aufgezeichnete Daten in diesem Zeitraum.</p>
         )}
         {history && device.type === "irrigation" && (
@@ -1061,18 +1106,100 @@ function LongTermChart({ samples, rangeMs }) {
   );
 }
 
-function ServerSettingsPanel({ devices, onNotice }) {
+// Single sensor series with an auto-scaled y-axis (units differ wildly:
+// °C, %, ppm …), rendered as a compact strip.
+function MiniSeriesChart({ points, rangeMs }) {
+  const [wrapRef, size] = useElementSize();
+  const plot = { left: 52, top: 8, width: Math.max(0, size.w - 52 - 12), height: Math.max(0, size.h - 8 - 24) };
+  const values = points.map((point) => point.value);
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (max - min < 1) {
+    min -= 1;
+    max += 1;
+  }
+  const pad = (max - min) * 0.1;
+  min -= pad;
+  max += pad;
+  const minAt = points[0].at;
+  const span = Math.max(1, points.at(-1).at - minAt);
+  const xFor = (at) => plot.left + ((at - minAt) / span) * plot.width;
+  const yFor = (value) => plot.top + ((max - value) / (max - min)) * plot.height;
+  const line = points.map((point) => `${xFor(point.at)},${yFor(point.value)}`).join(" ");
+  const tickLabel = (at) => new Date(at).toLocaleString("de-DE", rangeMs > 2 * 86400000
+    ? { day: "2-digit", month: "2-digit" }
+    : { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <div className="chart mini-chart" ref={wrapRef}>
+      {size.w > 0 && (
+        <svg viewBox={`0 0 ${size.w} ${size.h}`}>
+          {[min + pad, max - pad].map((value) => (
+            <g key={value}>
+              <line className="grid-line" x1={plot.left} x2={plot.left + plot.width} y1={yFor(value)} y2={yFor(value)} />
+              <text className="axis-label" x={plot.left - 8} y={yFor(value) + 4} textAnchor="end">{Math.round(value * 10) / 10}</text>
+            </g>
+          ))}
+          <text className="axis-label" x={plot.left} y={size.h - 6}>{tickLabel(points[0].at)}</text>
+          <text className="axis-label" x={plot.left + plot.width} y={size.h - 6} textAnchor="end">{tickLabel(points.at(-1).at)}</text>
+          <polyline points={line} fill="none" stroke={seriesColor.ch1} strokeWidth={2} strokeLinejoin="round" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function ServerSettingsPanel({ devices, deviceData, onNotice }) {
   const [retention, setRetention] = useState("");
   const [deleteDevice, setDeleteDevice] = useState(devices[0]?.id || "");
   const [deleteFrom, setDeleteFrom] = useState("");
   const [deleteTo, setDeleteTo] = useState("");
   const [secret, setSecret] = useState(() => localStorage.getItem("growhub.apiSecret") || "");
+  const [rules, setRules] = useState([]);
+  const [events, setEvents] = useState([]);
+  const sensorDevices = devices.filter((device) => device.type === "sensors");
+  const sensorsOf = (deviceId) => deviceData[deviceId]?.capabilities.sensors || [];
 
   useEffect(() => {
     serverFetch("api/server/settings")
       .then((settings) => setRetention(String(settings.retentionDays)))
       .catch(() => {});
+    serverFetch("api/server/alarm-rules")
+      .then((result) => setRules(result.rules || []))
+      .catch(() => {});
+    serverFetch("api/server/events?limit=15")
+      .then((result) => setEvents(result.events || []))
+      .catch(() => {});
   }, []);
+
+  function updateRule(index, patch) {
+    const next = [...rules];
+    next[index] = { ...next[index], ...patch };
+    setRules(next);
+  }
+
+  function addRule() {
+    const deviceId = sensorDevices[0]?.id || "";
+    setRules([...rules, {
+      id: `rule-${Date.now()}`,
+      deviceId,
+      sensorId: sensorsOf(deviceId)[0]?.id || "",
+      label: "",
+      min: null,
+      max: null,
+      escalate: false,
+    }]);
+  }
+
+  async function saveRules() {
+    try {
+      const result = await serverFetch("api/server/alarm-rules", "POST", { rules });
+      setRules(result.rules);
+      onNotice(`Alarm-Regeln gespeichert (${result.rules.length})`);
+    } catch (err) {
+      onNotice(`Speichern fehlgeschlagen: ${err.message}`);
+    }
+  }
 
   async function saveRetention() {
     try {
@@ -1148,6 +1275,59 @@ function ServerSettingsPanel({ devices, onNotice }) {
         <div className="panel-body form-grid">
           <label>Installations-Secret<input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="wie in server/config.json" /></label>
           <label className="switch"><button className="primary" onClick={saveSecret}><Save size={14} /> Übernehmen</button></label>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Alarm-Regeln</h2>
+            <p className="panel-sub">Schwellen pro Sensor — der Server prüft bei jedem Poll; „eskalieren" startet die Supervisor-Kette</p>
+          </div>
+          <div className="button-row">
+            <button onClick={addRule} disabled={sensorDevices.length === 0}><Plus size={14} /> Regel</button>
+            <button className="primary" onClick={saveRules}><Save size={14} /> Speichern</button>
+          </div>
+        </div>
+        <div className="panel-body window-table">
+          {rules.map((rule, index) => (
+            <div className="window-row rule-row" key={rule.id}>
+              <select value={rule.deviceId} onChange={(e) => updateRule(index, { deviceId: e.target.value, sensorId: sensorsOf(e.target.value)[0]?.id || "" })} aria-label="Gerät">
+                {sensorDevices.map((device) => (
+                  <option key={device.id} value={device.id}>{device.label}</option>
+                ))}
+              </select>
+              <select value={rule.sensorId} onChange={(e) => updateRule(index, { sensorId: e.target.value })} aria-label="Sensor">
+                {sensorsOf(rule.deviceId).map((sensor) => (
+                  <option key={sensor.id} value={sensor.id}>{sensor.name || sensor.id} ({sensor.quantity})</option>
+                ))}
+              </select>
+              <input type="number" placeholder="min" value={rule.min ?? ""} aria-label="Minimum" onChange={(e) => updateRule(index, { min: e.target.value === "" ? null : Number(e.target.value) })} />
+              <input type="number" placeholder="max" value={rule.max ?? ""} aria-label="Maximum" onChange={(e) => updateRule(index, { max: e.target.value === "" ? null : Number(e.target.value) })} />
+              <label className="switch" title="Eskalationskette auslösen">
+                <input type="checkbox" checked={rule.escalate} onChange={(e) => updateRule(index, { escalate: e.target.checked })} /> esk.
+              </label>
+              <button className="danger ghost" aria-label="Regel löschen" onClick={() => setRules(rules.filter((_, i) => i !== index))}>×</button>
+            </div>
+          ))}
+          {rules.length === 0 && <p className="muted">{sensorDevices.length === 0 ? "Kein Sensorgerät registriert." : "Keine Regeln — über „Regel“ eine anlegen."}</p>}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Ereignisse</h2>
+            <p className="panel-sub">Alarme, Eskalationsstufen, Config-Abgleich</p>
+          </div>
+        </div>
+        <div className="panel-body history">
+          {events.map((event, index) => (
+            <div className="history-row event-row" key={index}>
+              <span className="muted">{new Date(event.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+              <strong>{event.type}</strong>
+              <span>{event.message}</span>
+            </div>
+          ))}
+          {events.length === 0 && <p className="muted">Noch keine Ereignisse.</p>}
         </div>
       </section>
     </div>

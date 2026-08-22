@@ -62,6 +62,13 @@ protects roots from double watering (drain valves exempt), live schedule
 execution, run history, and controller health (uptime, reset reason, heap,
 clock validity).
 
+**Sensors & alarms** — sensor devices are pure pass-through slaves: they
+announce what they measure (temperature, humidity, CO₂, …, any stack behind
+any hardware) and GrowHub records, charts and supervises. Threshold rules
+live on the server; breaches raise alarms, drive host signal outputs
+(beacon/piezo on the Pi's GPIOs) and can trigger the escalation chain
+against the real controllers.
+
 **Thermal Supervisor** — a four-stage escalation chain against
 over-temperature, entirely on-device: **1** reduce light PWM to the override
 limit → **2** exhaust fan to 100 % → **3** drain the nutrient solution

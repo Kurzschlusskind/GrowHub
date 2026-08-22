@@ -29,6 +29,19 @@ export function openDb(path) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sensor_values (
+      device_id TEXT NOT NULL,
+      sensor_id TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      value REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sensor_values ON sensor_values(device_id, sensor_id, at);
+    CREATE TABLE IF NOT EXISTS events (
+      at INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      device_id TEXT,
+      message TEXT NOT NULL
+    );
   `);
   // Migrate pre-0.2 databases that lack the metric columns.
   for (const column of ["ch1", "ch2", "temperature"]) {
@@ -81,12 +94,48 @@ export function openDb(path) {
     deleteRange(deviceId, fromMs, toMs) {
       const samples = db.prepare("DELETE FROM samples WHERE device_id = ? AND at >= ? AND at <= ?").run(deviceId, fromMs, toMs);
       const runs = db.prepare("DELETE FROM runs WHERE device_id = ? AND at >= ? AND at <= ?").run(deviceId, fromMs, toMs);
-      return { deletedSamples: Number(samples.changes), deletedRuns: Number(runs.changes) };
+      const sensorValues = db.prepare("DELETE FROM sensor_values WHERE device_id = ? AND at >= ? AND at <= ?").run(deviceId, fromMs, toMs);
+      return { deletedSamples: Number(samples.changes) + Number(sensorValues.changes), deletedRuns: Number(runs.changes) };
     },
 
     prune(olderThanMs) {
       db.prepare("DELETE FROM samples WHERE at < ?").run(olderThanMs);
       db.prepare("DELETE FROM runs WHERE at < ?").run(olderThanMs);
+      db.prepare("DELETE FROM sensor_values WHERE at < ?").run(olderThanMs);
+      db.prepare("DELETE FROM events WHERE at < ?").run(olderThanMs);
+    },
+
+    insertSensorValue(deviceId, sensorId, at, value) {
+      db.prepare("INSERT INTO sensor_values (device_id, sensor_id, at, value) VALUES (?, ?, ?, ?)")
+        .run(deviceId, sensorId, at, value);
+    },
+
+    sensorSeries(deviceId, fromMs, toMs, bucketMinutes, limitPerSensor = 2000) {
+      const bucketMs = Math.max(1, bucketMinutes) * 60000;
+      const rows = db.prepare(
+        `SELECT sensor_id, (at / ?) * ? AS bucket, AVG(value) AS value
+         FROM sensor_values WHERE device_id = ? AND at >= ? AND at <= ? AND value IS NOT NULL
+         GROUP BY sensor_id, bucket ORDER BY bucket ASC`,
+      ).all(bucketMs, bucketMs, deviceId, fromMs, toMs);
+      const series = {};
+      for (const row of rows) {
+        if (!series[row.sensor_id]) series[row.sensor_id] = [];
+        if (series[row.sensor_id].length < limitPerSensor) {
+          series[row.sensor_id].push({ at: row.bucket, value: Math.round(row.value * 100) / 100 });
+        }
+      }
+      return series;
+    },
+
+    logEvent(type, deviceId, message) {
+      db.prepare("INSERT INTO events (at, type, device_id, message) VALUES (?, ?, ?, ?)")
+        .run(Date.now(), type, deviceId, message);
+    },
+
+    recentEvents(limit = 50) {
+      return db.prepare("SELECT at, type, device_id, message FROM events ORDER BY at DESC LIMIT ?")
+        .all(limit)
+        .map((row) => ({ at: row.at, type: row.type, deviceId: row.device_id, message: row.message }));
     },
 
     getSetting(key, fallback) {

@@ -6,6 +6,7 @@
 const STATUS_PATH = {
   "lighting-rs485": "/api/status",
   irrigation: "/api/irrigation/status",
+  sensors: "/api/sensors/health",
 };
 
 // Numeric metrics extracted per device type so long ranges can be
@@ -21,8 +22,9 @@ function extractMetrics(type, status) {
   return {};
 }
 
-export function startCollector({ devices, db, pollIntervalSeconds, getRetentionDays, log }) {
+export function startCollector({ devices, db, pollIntervalSeconds, getRetentionDays, log, onCycle }) {
   const state = new Map(devices.map((device) => [device.id, { online: false, lastSeenAt: 0 }]));
+  const latestReadings = new Map(); // deviceId -> readings array (sensor devices)
 
   async function fetchJson(endpoint, path) {
     const response = await fetch(`${endpoint}${path}`, { signal: AbortSignal.timeout(5000) });
@@ -42,6 +44,15 @@ export function startCollector({ devices, db, pollIntervalSeconds, getRetentionD
           if (event.at) db.insertRun(device.id, event);
         }
       }
+      if (device.type === "sensors") {
+        const result = await fetchJson(device.endpoint, "/api/sensors/readings");
+        const readings = result.readings || [];
+        const now = Date.now();
+        for (const reading of readings) {
+          db.insertSensorValue(device.id, reading.sensor, now, reading.value);
+        }
+        latestReadings.set(device.id, readings);
+      }
       markOnline(device.id, true);
     } catch (err) {
       markOnline(device.id, false);
@@ -59,6 +70,7 @@ export function startCollector({ devices, db, pollIntervalSeconds, getRetentionD
   async function cycle() {
     for (const device of devices) await pollDevice(device);
     db.prune(Date.now() - getRetentionDays() * 86400000);
+    if (onCycle) await onCycle(latestReadings);
   }
 
   cycle();

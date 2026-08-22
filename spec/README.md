@@ -15,7 +15,8 @@ contracts: everything specified here can be observed live in the
 |------|---------|--------|
 | [Irrigation Controller](irrigation-controller.md) | 1.0.0 | draft |
 | [Lighting Controller](lighting-controller.md) | 1.0.0 | draft |
-| [GrowHub Server](growhub-server.md) | 0.2.0 | draft |
+| [Sensor Controller](sensor-controller.md) | 1.0.0 | draft |
+| [GrowHub Server](growhub-server.md) | 0.3.0 | draft |
 | [Request Signing](signing.md) | 1.0.0 | draft |
 
 ## License

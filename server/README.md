@@ -18,6 +18,10 @@ Provides:
 - **Request signing** — with `apiSecret` set, every write requires an
   HMAC-SHA256 signature ([spec/signing.md](../spec/signing.md)); proxied
   writes are re-signed towards the device
+- **Alarm engine** — threshold rules over sensor devices, host signal
+  outputs (beacon/piezo via GPIO, drivers `pinctrl`/`gpioset`/`none`), the
+  supervisor escalation chain executed against real controllers with retry,
+  sensor config mirroring and an event log
 - **Static hosting** of the built web app (`dist/`)
 
 ## Run

@@ -13,6 +13,7 @@ import test from "node:test";
 
 import { mockLightingRequest } from "../src/core/mock.js";
 import { irrigationCapabilities, mockIrrigationRequest } from "../src/devices/irrigation/mock.js";
+import { mockSensorsRequest, sensorCapabilities } from "../src/devices/sensors/mock.js";
 
 const realNow = Date.now.bind(Date);
 let offsetMs = 0;
@@ -183,6 +184,41 @@ test("irrigation: run ends by itself at the deadline", () => {
   const history = mockIrrigationRequest("/api/irrigation/history");
   assert.equal(history.events[0].valve, "v5");
   assert.equal(history.events[0].durationSeconds, 30);
+});
+
+/* ---------- sensor contract ---------- */
+
+test("sensors: capabilities shape", () => {
+  const caps = mockSensorsRequest("/api/sensors/capabilities");
+  assert.equal(caps.spec, "1.0.0");
+  assert.ok(caps.sensors.length >= 1);
+  for (const sensor of caps.sensors) {
+    assert.ok(sensor.id);
+    assert.ok(sensor.quantity);
+    assert.equal(typeof sensor.unit, "string");
+  }
+});
+
+test("sensors: readings cover every capability sensor with numeric or null values", () => {
+  const readings = mockSensorsRequest("/api/sensors/readings").readings;
+  assert.equal(readings.length, sensorCapabilities.sensors.length);
+  for (const reading of readings) {
+    assert.ok(sensorCapabilities.sensors.some((sensor) => sensor.id === reading.sensor));
+    assert.ok(reading.value === null || typeof reading.value === "number");
+  }
+});
+
+test("sensors: health shape and config mirror roundtrip", () => {
+  const health = mockSensorsRequest("/api/sensors/health");
+  assert.equal(typeof health.uptimeSeconds, "number");
+  assert.equal(health.clockValid, true);
+
+  assert.equal(mockSensorsRequest("/api/sensors/config-mirror").hash, null);
+  const stored = post(mockSensorsRequest, "/api/sensors/config-mirror", { hash: "abc123", config: { rules: [] } });
+  assert.equal(stored.ok, true);
+  const mirror = mockSensorsRequest("/api/sensors/config-mirror");
+  assert.equal(mirror.hash, "abc123");
+  assert.ok(mirror.updatedAt > 0);
 });
 
 test("cross-device: supervisor drill commands drain and flush runs", () => {
